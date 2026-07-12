@@ -1,0 +1,94 @@
+# Copy to nginx/conf.d/https.conf after certbot (not tracked in git).
+# Replace DOMAIN_PLACEHOLDER with asutport.ru via ssl-init.sh
+
+server {
+    listen 80;
+    server_name DOMAIN_PLACEHOLDER www.DOMAIN_PLACEHOLDER;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name DOMAIN_PLACEHOLDER www.DOMAIN_PLACEHOLDER;
+
+    ssl_certificate /etc/nginx/ssl/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    client_max_body_size 100M;
+    resolver 127.0.0.11 valid=5s ipv6=off;
+
+    location /api/ {
+        set $backend_upstream http://backend:8080;
+        proxy_pass $backend_upstream;
+        include /etc/nginx/includes/proxy-base.conf;
+        include /etc/nginx/includes/proxy-api.conf;
+    }
+
+    location = /health {
+        set $backend_upstream http://backend:8080;
+        proxy_pass $backend_upstream;
+        proxy_set_header Host $host;
+    }
+
+    location /_next/ {
+        set $frontend_upstream http://frontend:3000;
+        proxy_pass $frontend_upstream;
+        include /etc/nginx/includes/proxy-base.conf;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location /kb {
+        set $frontend_upstream http://frontend:3000;
+        proxy_pass $frontend_upstream;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location /dashboard {
+        set $frontend_upstream http://frontend:3000;
+        proxy_pass $frontend_upstream;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location /vendor {
+        set $frontend_upstream http://frontend:3000;
+        proxy_pass $frontend_upstream;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location /admin {
+        set $frontend_upstream http://frontend:3000;
+        proxy_pass $frontend_upstream;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location /wp-admin/ {
+        proxy_pass http://wordpress;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location /wp-content/ {
+        proxy_pass http://wordpress;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location /wp-includes/ {
+        proxy_pass http://wordpress;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location /wp-json/ {
+        proxy_pass http://wordpress;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location = /wp-login.php {
+        proxy_pass http://wordpress;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location / {
+        proxy_pass http://wordpress;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+}

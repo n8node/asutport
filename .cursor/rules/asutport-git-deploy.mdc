@@ -1,0 +1,131 @@
+---
+description: ASUTPORT — Git, деплой, серверная инфраструктура, SSL, бэкапы, S3
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# ASUTPORT — Git и деплой
+
+Слияние проверенных правил MAAS (memory-service-deploy + mnemoniqa-git-deploy + mnemoniqa-ssl)
+с изменениями под S3 и домен проекта.
+
+## Git
+
+- Моно-репо. Origin: `https://github.com/n8node/asutport.git`.
+- Ветки: `main` (production), `feat/*`, `fix/*`. Conventional commits на английском.
+- После значимых изменений агент делает commit и push в `origin/main`, если не запрещено.
+- **Отчёт после push:** ветка, короткий SHA, ссылка `https://github.com/n8node/asutport/commit/<FULL_SHA>`.
+- `.env`, `nginx/ssl/*`, `backups/` — никогда в git.
+
+## Как агент пишет про деплой (правило из MAAS, сохраняется дословно по духу)
+
+- По умолчанию команды — как их вводят УЖЕ на сервере в SSH-сессии, без обёртки `ssh user@host "..."`.
+- НИКОГДА не подменять команды «как раньше», «тот же compose», многоточиями.
+- ВСЕГДА полный копируемый bash-блок: cd, git, docker compose с ОБОИМИ -f, флаги без сокращений.
+- Несколько сценариев — отдельный fenced block на каждый.
+- **Миграции: goose применяется при старте контейнера backend** (`cmd/server/main.go`).
+  Отдельная make migrate не нужна; проверка — строка `migrations applied` в логе backend.
+- Путь на сервере: **`/opt/asutport`**.
+
+## Сервер
+
+- VPS: 4 vCPU, 8 GB RAM, 80 GB SSD, Ubuntu 24.04, Docker 27+. **Хостинг в РФ** (152-ФЗ,
+  промышленные клиенты): Timeweb Cloud / Selectel / Beget — Beget логичен, там же S3.
+- Firewall: 22, 80, 443. Подготовка сервера — как в MAAS (docker, make, git, deploy-user).
+
+## S3 (Beget) — отличия от MAAS
+
+- **Production: MinIO НЕ разворачивается.** Объектное хранилище — Beget S3 (managed):
+  создать бакет в панели Beget, ключи в `.env`:
+  ```bash
+  S3_ENDPOINT=https://s3.ru1.storage.beget.cloud   # уточнить регион в панели
+  S3_REGION=ru-1
+  S3_BUCKET=asutport
+  S3_ACCESS_KEY=...
+  S3_SECRET_KEY=...
+  S3_USE_PATH_STYLE=true
+  ```
+- **Dev: MinIO в docker-compose** (тот же клиентский код, S3_ENDPOINT=http://minio:9000).
+- Бакет приватный. Проверка доступности S3 входит в `/health` (`"s3":"ok"`).
+- В бэкапы БД содержимое S3 не входит — Beget S3 durable сам по себе; но еженедельный
+  `aws s3 sync` критичных префиксов (docs/) на второй бакет/локальный диск — в cron (скрипт scripts/s3-sync.sh).
+
+## Деплой на сервере (клон уже в /opt/asutport)
+
+```bash
+cd /opt/asutport && git fetch origin && git checkout main && git pull origin main && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+Проверка:
+
+```bash
+curl -sf http://127.0.0.1/health
+```
+
+Проверка миграций:
+
+```bash
+cd /opt/asutport
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs backend --tail=30
+```
+
+## Первый деплой (пустой сервер)
+
+```bash
+cd /opt
+git clone https://github.com/n8node/asutport.git
+cd asutport
+cp .env.example .env
+```
+
+Заполнить .env: POSTGRES_PASSWORD, WP_DB_PASSWORD, WP_DB_ROOT_PASSWORD, JWT_SECRET, API_KEY_SALT
+(генерация: `openssl rand -base64 32`), OPENROUTER_API_KEY, S3_* (из панели Beget),
+`DOMAIN=asutport.ru`, ENVIRONMENT=production. Затем:
+
+```bash
+cd /opt/asutport
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
+Суперадмин:
+
+```bash
+cd /opt/asutport
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec backend ./server --seed-admin --email=admin@asutport.ru --password=CHANGE_ME
+```
+
+## SSL (паттерн mnemoniqa-ssl сохраняется)
+
+- Email Let's Encrypt по умолчанию **`erman.ai@yandex.ru`** (переопределение CERTBOT_EMAIL в .env).
+- Домен — `DOMAIN=asutport.ru` в .env. DNS A-запись `asutport.ru` → IP сервера ДО первого запуска.
+- Первичный выпуск:
+
+```bash
+cd /opt/asutport
+chmod +x scripts/ssl-init.sh scripts/ssl-deploy-hook.sh
+./scripts/ssl-init.sh
+```
+
+- После выпуска: `nginx/conf.d/https.conf.sample` → `https.conf` (не в git), пересборка nginx.
+- Продление в cron:
+
+```bash
+sudo certbot renew --quiet --deploy-hook "/opt/asutport/scripts/ssl-deploy-hook.sh"
+```
+
+## Бэкапы
+
+- Ежедневно 4:00 cron: `scripts/backup.sh` — pg_dump + mysqldump gzip в backups/, retention 30 дней.
+- Еженедельно: `scripts/s3-sync.sh` (см. выше).
+- **SLA-специфика:** перед любой миграцией, меняющей tickets/ticket_events/sla_timers, — обязательный
+  ручной бэкап (эти данные — договорные обязательства).
+
+## Правила деплоя (сводка)
+
+1. Деплой только из main. Перед деплоем — git pull на сервере, не копирование файлов.
+2. .env — вручную на сервере, не в git.
+3. Миграции — при старте backend (goose). Проверять лог.
+4. После деплоя — /health (включая s3:ok) и smoke: открыть /kb и /dashboard.
+5. Суперадмин — seed-командой.
+6. Логи Docker: json-file, max 10MB × 3.
+7. UptimeRobot/аналог на https://asutport.ru/health каждые 5 минут, алерт в Telegram.

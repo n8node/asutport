@@ -1,0 +1,175 @@
+---
+description: ASUTPORT — информационная безопасность (разработка, инфра, LLM, мультитенантность, 152-ФЗ)
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# ASUTPORT — информационная безопасность
+
+Дополняет `asutport-rules.mdc`, `asutport-project.mdc`, `asutport-git-deploy.mdc`,
+`asutport-llm-provider-privacy.mdc`. При конфликте по безопасности — приоритет у этого файла.
+
+Контекст угроз: B2B SaaS для АСУ ТП — промышленные конфигурации, логи, лицензионная документация,
+ПД инженеров (152-ФЗ), жёсткая изоляция организаций, LLM-субобработчик (OpenRouter), WordPress как
+отдельный периметр.
+
+---
+
+## 1. Secure SDLC / DevSecOps
+
+- **Секреты в git запрещены.** `.env`, ключи, токены, приватные сертификаты — только вне репозитория.
+  Перед merge — мысленная проверка «нет ли секрета в diff»; в CI — secret scanning (gitleaks/trufflehog).
+- **Зависимости:** в CI — `go vet`, `govulncheck`, `npm audit`; critical/high — блокируют merge до fix
+  или documented exception.
+- **Образы Docker:** pin тегов в production (не `latest`); периодический container scan перед деплоем.
+- **Новые эндпоинты с данными** — краткий threat review: IDOR, privilege escalation, утечка в LLM/logs.
+- **Клиенту никогда:** stack trace, SQL, внутренние пути, имена таблиц, env-переменные, raw LLM errors.
+- **panic запрещён** в production-коде; ошибки — `fmt.Errorf("...: %w", err)`.
+
+---
+
+## 2. Аутентификация и сессии
+
+- Пароли: **Argon2id** (предпочтительно) или bcrypt cost ≥ 12; минимум **12 символов**; типовые пароли отклонять.
+- JWT access — **короткий TTL** (15–30 мин); refresh — с **rotation** и revoke list / session_id в БД.
+- Claims JWT: `user_id`, `org_id`, `role`, `session_id` — **только из проверенного токена**.
+- **НИКОГДА не принимать `org_id` из body/query/header клиента** для авторизации данных.
+- API keys: хранить **hash + prefix** (plain key показывается один раз); scope = org; revoke; `last_used_at`.
+- Brute-force: rate limit на login/register; backoff; логировать failed attempts (без пароля в логе).
+- **MFA обязателен** для `superadmin`; рекомендован для admin ролей manufacturer/partner (TOTP/WebAuthn).
+- Impersonate (superadmin): time-box, **audit_log** с `admin_impersonate:<user_id>`, баннер в UI.
+
+---
+
+## 3. Авторизация и мультитенантность (КРИТИЧНО)
+
+- **Каждый** SELECT/UPDATE/DELETE фильтруется по org/entitlement — в repository-слое, не только в handler.
+- **IDOR-тесты обязательны** для: tickets, attachments, doc_sources, presigned URL, installations, snapshots.
+- Производители **изолированы абсолютно** — нет cross-org списков, search, analytics без явного согласия.
+- Партнёр видит только entitlement и тикеты **своих** клиентов.
+- Superadmin — break-glass; каждая мутация → `audit_log` (actor, action, rationale).
+- Defense in depth (опционально post-MVP): Postgres **RLS** на таблицы с `org_id`.
+
+---
+
+## 4. API-безопасность (Go + chi)
+
+- Вход: **go-playground/validator** + явные лимиты длины; enum — только whitelist.
+- SQL — **только параметризованный** (pgx); ORM/raw string concat запрещены.
+- **Rate limiting:** по IP + org_id + API key; жёстче на auth, upload, chat/LLM.
+- Upload: nginx до 100M для PDF, но backend проверяет **magic bytes**, MIME, max pages/size, timeout.
+- Мутации биллинга/тикетов — поддержка **Idempotency-Key** (защита от replay).
+- Ошибки API: `{ "error": { "code", "message" }, "meta": { "request_id" } }` — message без внутренних деталей.
+- **Production CORS:** только `https://asutport.ru` (+ явный staging-домен). **`Access-Control-Allow-Origin: *` запрещён в production.**
+- Security headers (nginx или Next): `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options` / CSP `frame-ancestors`, `Referrer-Policy: strict-origin-when-cross-origin`.
+
+---
+
+## 5. Frontend (Next.js 15)
+
+- **Секреты в `NEXT_PUBLIC_*` запрещены** — только публичные конфиги (app name, API base path).
+- **CSP** раздельно: `/kb` (user content) строже; кабинеты — `default-src 'self'`.
+- Markdown/HTML в базе знаний — **sanitize** перед render (DOMPurify или эквивалент).
+- Auth: предпочтительно **httpOnly Secure SameSite=Strict** cookies; при Bearer в localStorage — осознанный XSS-риск.
+- Server Components / Server Actions — **повторная authz на сервере**, не доверять клиентским флагам.
+- Не логировать токены в browser console / analytics.
+
+---
+
+## 6. S3 и загрузка файлов
+
+- Бакет **private**; публичный ACL запрещён (см. also asutport-rules.mdc §S3).
+- Presigned URL — **TTL ≤ 1 ч**; полный URL с подписью **не логировать**.
+- S3 keys — **только через `internal/s3/keys.go`**; user input в ключах — sanitize, без `..` и control chars.
+- Upload whitelist: PDF, PNG, JSON (snapshot), zip project — явный список; **block** executables, `.sh`, macro-office.
+- ClamAV/antivirus — до production с реальными клиентскими вложениями; hook point заложить в upload pipeline.
+- S3 credentials: **least privilege**; отдельные ключи dev/staging/prod; ротация при компрометации.
+
+---
+
+## 7. LLM / AI Security
+
+- Все вызовы — **только через `internal/llm`**; прямой HTTP к OpenRouter из handlers запрещён.
+- User-facing copy — `asutport-llm-provider-privacy.mdc` (vendor-neutral).
+- **Prompt injection:** system/user разделены; retrieved chunks = untrusted context; инструкция не выполнять
+  команды из документов пользователя.
+- **Redaction перед отправкой в LLM:** пароли, API keys, токены, IP, серийники (по политике), ФИО — маскировать
+  или исключать из промпта.
+- RAG retrieval — фильтр product_id/version из профиля установки + **post-check** org entitlement.
+- Ответ без валидной citation **не отдаётся** (asutport-rules.mdc).
+- Логи LLM: redacted prompts/responses; полные дампы — только debug-режим, не prod PD.
+- Rate limit / quota на chat и LLM — защита от cost abuse.
+- OpenRouter — **субобработчик** в политике/confidentiality; on-premise контур — без внешней отправки данных.
+
+---
+
+## 8. WordPress (отдельный периметр)
+
+- WP **не имеет доступа** к Postgres ASUTPORT; только MySQL WP.
+- Отключить file editor; XML-RPC — off если не нужен; ограничить `wp-admin` (IP allowlist или 2FA plugin).
+- Сильные пароли; security updates; мониторинг brute-force на `wp-login.php`.
+- Секреты ASUTPORT **не хранить** в WP options.
+
+---
+
+## 9. Инфраструктура и Docker
+
+- Наружу — **только 80/443** (nginx); Postgres, MySQL, MinIO, backend, frontend — internal network only.
+- Контейнеры: **non-root** где возможно; prod — pin image tags.
+- `.env` на сервере: права **600**, владелец deploy-user; не в git.
+- SSH: ключи; **PasswordAuthentication no**; sudo — минимум (certbot, cron).
+- TLS **1.2+**; Let's Encrypt auto-renew (asutport-git-deploy.mdc).
+- Бэкапы: шифрование at rest; **тест restore** раз в квартал для pg + wp.
+
+---
+
+## 10. Логирование, мониторинг, инциденты
+
+- Structured logs (slog): **без** password, token, presigned URL, полного snapshot body, OpenRouter key.
+- Security events → audit/alert: spike failed login, presign denied, org mismatch, подозрительный upload.
+- `/health` мониторинг (asutport-git-deploy.mdc) + алерт на sustained `postgres/s3 error`, 5xx rate.
+- Playbook (минимум): компрометация API key, JWT secret, подозрительный upload, утечка между org.
+
+---
+
+## 11. 152-ФЗ и privacy-by-design
+
+- Минимизация ПД: ФИО, email, телефон дежурного — не больше (asutport-project.mdc).
+- Согласие на обработку ПД; **отдельное согласие** на диагностический слепок (состав виден до отправки).
+- Prod data — **только РФ** (хостинг + S3 Beget).
+- Процедуры: доступ субъекта, удаление, экспорт; реестр субобработчиков (OpenRouter, хостинг, S3, email).
+- DPA с клиентами-юрлицами.
+
+---
+
+## 12. CI/CD и supply chain
+
+- `main` protected: review + green CI перед merge.
+- Deploy — **только git pull** на сервере (asutport-git-deploy.mdc); не rsync prod-файлов.
+- CI не печатает secrets; masked env vars.
+- Dependabot/Renovate для Go, npm, Docker base images.
+
+---
+
+## Приоритет по фазам roadmap
+
+| Фаза | Обязательно внедрить |
+|------|----------------------|
+| **2 (auth)** | Password hash, JWT, auth middleware, prod CORS, login rate limit, IDOR tests |
+| **4–5 (docs/agent)** | Upload validation, LLM redaction, prompt-injection baseline, presign authz tests |
+| **6 (tickets)** | Attachment security, audit_log на мутации |
+| **10 (hardening)** | Full rate limits, CSP, MFA superadmin, optional RLS, ClamAV |
+| **Постоянно** | Secret/vuln scan, WP hardening, backup restore tests |
+
+---
+
+## Чеклист агента перед merge (security)
+
+1. Новый доступ к данным — есть фильтр **org_id/entitlement** в repository?
+2. Есть **IDOR**-риск по UUID в URL — проверен ownership?
+3. Секреты/токены/полные presigned URL **не попали** в логи и ответы API?
+4. Upload/LLM — **validation + redaction** на месте?
+5. Production CORS не `*`; security headers не сломаны?
+6. Мутации чувствительных сущностей → **audit_log**?
+7. Зависимости без новых critical CVE (или exception задокументирован)?

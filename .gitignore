@@ -1,0 +1,41 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Go
+backend/tmp/
+backend/vendor/
+*.exe
+*.test
+*.out
+
+# Node
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker / nginx
+nginx/ssl/*.pem
+nginx/conf.d/https.conf
+!nginx/ssl/.gitkeep
+
+# Backups & uploads
+backups/*
+!backups/.gitkeep
+uploads/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Design assets (large binaries optional)
+design/*
+!design/.gitkeep

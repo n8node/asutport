@@ -1,0 +1,281 @@
+---
+description: ASUTPORT — единый портал поддержки АСУ ТП. Полные правила разработки: архитектура и стек
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# ASUTPORT — правила разработки (архитектура и стек)
+
+## Обзор проекта
+
+Единый портал технической поддержки для рынка АСУ ТП РФ (весь спектр: ПЛК железные и виртуальные,
+SCADA, HMI, приводы, КИП, промышленные сети). Клиент получает одно окно поддержки; первая линия —
+ИИ-агент, обученный на документации производителей; эскалации маршрутизируются по типу вопроса
+и записи entitlement производителю / поставщику / интегратору. Платформа НЕ держит собственный
+штат поддержки — люди-эксперты только у вендоров (юнит-экономика v2).
+
+Ключевой принцип: **платформа продаёт гарантию и маршрут, а не человеко-часы.**
+SLA-таймер, статус «на чьей стороне мяч» и цитата на страницу мануала — это продукт.
+Ошибка таймера или выдуманная цитата = нарушение договора, а не UI-баг.
+
+### Роли (5)
+
+1. **client** — эксплуатация (инженер АСУ ТП на объекте). Кабинет `/dashboard`.
+2. **manufacturer** — производитель продукта (владеет документацией, дефектами, зоной поддержки). Кабинет `/vendor`.
+3. **partner** — поставщик/дилер (гарантия, лицензии, коммерция по своим отгрузкам). Кабинет `/partner`. НЕ в MVP — роль живёт как поля entitlement.
+4. **integrator** — интегратор (прикладной код своих проектов). Кабинет `/integrator`. НЕ в MVP.
+5. **superadmin** — платформа (ты + супервайзер). Кабинет `/admin`.
+
+Пользователи принадлежат **организациям** (organizations: type IN client_org/manufacturer/partner/integrator).
+Роль и скоуп данных определяются членством в организации, не полем на user.
+
+### Стек
+
+- **Backend:** Go 1.23+ (chi, pgx/v5, goose, slog, caarlos0/env, go-playground/validator)
+- **Frontend:** Next.js 15+ (App Router), TypeScript strict, Tailwind CSS, shadcn/ui
+- **Database:** PostgreSQL 16+ с pgvector (эмбеддинги базы знаний и документации)
+- **Object Storage:** S3-совместимое. **Production: Beget S3 (внешний managed). Dev: MinIO в docker-compose.**
+  Один клиентский код через `S3_ENDPOINT` (aws-sdk-go-v2, path-style по флагу).
+- **LLM Provider:** OpenRouter (chat + embeddings + vision через единый API)
+- **Reverse Proxy:** Nginx внутри Docker
+- **Контейнеризация:** Docker + Docker Compose
+- **Очереди (production):** NATS JetStream (после MVP; на MVP — каналы в Go как в MAAS)
+- **Кэш (production):** DragonflyDB (после MVP)
+
+Отличие от MAAS: MinIO НЕ идёт в production compose — в проде объектное хранилище внешнее (Beget S3).
+
+---
+
+## S3 — объектное хранилище (КРИТИЧЕСКИЙ КОНТУР)
+
+Вся документация производителей и всё, на что ссылается агент, живёт в S3. Postgres хранит
+ТОЛЬКО метаданные и ключи объектов. Бинарники в Postgres запрещены.
+
+### Схема ключей (prefix layout)
+
+```
+docs/{manufacturer_slug}/{product_slug}/{version}/original/{filename}.pdf   # оригинал документации
+docs/{manufacturer_slug}/{product_slug}/{version}/pages/{page:04d}.png      # рендер страницы (vision-пайплайн)
+docs/{manufacturer_slug}/{product_slug}/{version}/parsed/{page:04d}.md      # результат VLM-парсинга страницы
+kb/{article_id}/assets/{filename}                                           # иллюстрации статей базы знаний
+tickets/{ticket_id}/attachments/{uuid}_{filename}                           # вложения тикетов (логи, дампы)
+snapshots/{installation_id}/{timestamp}.json                                # слепки конфигурации
+projects/{installation_id}/{uuid}_{filename}                                # выгрузки прикладных проектов
+```
+
+### Правила S3
+
+1. **Бакет приватный.** Документация производителей — лицензионный материал; публичного доступа нет.
+2. **Доступ — только presigned URL** (TTL 1 час), выдаётся backend'ом ПОСЛЕ проверки прав:
+   страница документации → продукт есть в профиле установки клиента ИЛИ пользователь из организации-производителя.
+   Вложение тикета → участник тикета. Прямые ссылки на S3-ключи наружу не отдаются никогда.
+3. **Citations агента обязаны разрешаться в страницу.** Ответ агента содержит
+   `{source_id, page, quote}` → фронтенд запрашивает `GET /api/v1/sources/:id/pages/:page/url`
+   → presigned URL PNG страницы. Пользователь ВСЕГДА может открыть страницу мануала, на которую сослался агент.
+4. **Vision-пайплайн читает и пишет S3:** воркер parse берёт original.pdf → рендерит pages/*.png →
+   VLM → parsed/*.md → чанки с эмбеддингами в Postgres, каждый чанк несёт `s3_page_key` и `page_number`.
+5. **Идемпотентность по content-hash:** SHA-256 оригинала хранится в `doc_sources.content_hash`;
+   повторная загрузка того же файла не запускает парсинг и не жжёт токены (паттерн из mnemoniqa-rag-sync).
+6. **Env:** `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`,
+   `S3_USE_PATH_STYLE=true` (Beget и MinIO работают в path-style). Никаких хардкодов эндпоинта.
+7. **Lifecycle:** вложения тикетов и слепки — retention 24 месяца (настраивается);
+   документация и страницы — бессрочно, версии не удаляются (на них ссылаются старые тикеты).
+
+---
+
+## Фундаментальные архитектурные принципы
+
+### 1. Lineage цитат — цепочка доказуемости
+
+Перенос главного принципа MAAS на домен поддержки. Каждое утверждение агента обязано иметь цепочку:
+
+```
+ответ → chunk_id → doc_source_id + page_number → s3_page_key (PNG страницы)
+```
+
+Ответ без разрешимой цитаты = галлюцинация по определению. Query-ответы агента ОБЯЗАНЫ содержать
+citations; UI обязан уметь открыть страницу. Статьи базы знаний, рождённые из тикетов, несут
+`origin_ticket_id`.
+
+### 2. Entitlement — данные маршрутизируют, LLM рассуждает
+
+Тип вопроса — вывод агента (уточняющийся, не одноразовый). Адресат — детерминированный lookup:
+
+```
+дефект продукта      → installation_products.manufacturer_org_id
+гарантия/коммерция   → entitlements(serial).supplier_org_id
+прикладной код       → installation_products.integrator_org_id
+типовой вопрос       → агент сам (цель 50–70% потока)
+```
+
+Запрещено маршрутизировать «по рассуждению» мимо entitlement и запрещено жёсткими правилами
+подменять квалификацию. Отсутствие нужной стороны на платформе → фолбэк (честный статус клиенту,
+самообслуживание: контакты + готовый текст обращения + база знаний), fallback-событие пишется
+в `fallback_log` (это growth-данные).
+
+### 3. SLA — серверная истина, append-only события
+
+- Все таймеры считаются на сервере от `ticket_events` (append-only). Фронтенд только отображает.
+- Приоритеты: `emergency / degraded / question`. Каждому тарифу — матрица нормативов реакции.
+- Автоэскалация: просрочка → событие `sla_breach_warning` → следующий уровень цепочки
+  (инженер → руководитель поддержки вендора → супервайзер). Воркер, не cron в браузере.
+- «Мяч на стороне» (`ball_owner`) — вычислимое поле от последнего события, не мутируемый флаг.
+- Часовой пояс: TIMESTAMPTZ везде; рабочие часы зоны поддержки вендора — в его политике.
+- Идемпотентность: обработчики событий тикета идемпотентны по `event_id` (ретраи воркеров не двоят эскалации).
+
+### 4. SGR (Schema-Guided Reasoning) — правила extraction ПЕРЕНОСЯТСЯ КАК ЕСТЬ
+
+Доказано на MAAS (300+ промптов): на extraction-задачах высокий reasoning ЛОМАЕТ результат.
+В ASUTPORTе extraction-задачи это: квалификация тикета (тип/приоритет/продукты), извлечение
+версий и симптомов из текста клиента, парсинг структуры страницы документации, разметка тем обращений.
+
+- ДЕШЁВАЯ модель, НИЗКИЙ reasoning, JSON Schema как response_format, все поля required,
+  additionalProperties: false, пустые значения "" / [], валидатор рекурсивно properties == required.
+- УМНАЯ модель — для: синтеза ответов агента, генерации статей из тикетов, анализа прикладного кода,
+  сводок для эскалаций.
+- VLM-парсинг документации — отдельная модель (vision), см. asutport-agent.mdc.
+
+### 5. Асимметричные пороги уверенности агента
+
+Цена ошибки несимметрична: лишняя эскалация дёшева, ложное «это ошибка вашего кода» дорого,
+уверенная чушь при аварии на непрерывном производстве — недопустима.
+
+- confidence ниже порога → честное «в документации этого нет» + предложение эскалации. НИКОГДА не догадка.
+- Агент НИКОГДА сам: не выносит вердикт «дефект» (только производитель), не принимает
+  гарантийно-денежных решений, не даёт инструкций на emergency-приоритете непрерывного
+  производства без параллельного предложения эскалации.
+- Переквалификация типа инженером → запись в `qualification_feedback` (датасет точности).
+
+### 6. Золотые наборы — регрессионные тесты ИИ-контура
+
+На каждого производителя при онбординге создаётся golden set: 30–50 злых вопросов по таблицам,
+схемам и формулам его документации с эталонными ответами (`golden_sets`, `golden_questions`).
+Прогон — make-командой и в CI при изменении пайплайна парсинга/ретривала/промптов.
+Падение метрики ниже порога = красный билд. Это же артефакт пилота для вендора.
+
+---
+
+## Структура проекта
+
+```
+asutport/
+├── docker-compose.yml            # nginx, backend, frontend, wordpress, postgres, mysql, minio (dev)
+├── docker-compose.prod.yml       # replicas, limits, logging; БЕЗ minio (prod = Beget S3)
+├── .env.example
+├── Makefile
+├── nginx/                        # Dockerfile, nginx.conf, conf.d/, ssl/
+├── wordpress/                    # маркетинг: лендинг, pricing, блог
+├── backend/
+│   ├── cmd/server/main.go        # миграции goose при старте (паттерн mnemoniqa)
+│   ├── internal/
+│   │   ├── config/
+│   │   ├── server/
+│   │   ├── middleware/           # auth, org_scope, ratelimit, cors, logging
+│   │   ├── handler/              # ticket, installation, entitlement, kb, agentchat, vendor, admin_*, billing, health
+│   │   ├── service/              # ticket, routing, sla, agent, docs_pipeline, kb, entitlement, billing, fallback
+│   │   ├── repository/           # postgres: ticket, event, installation, entitlement, org, kb, docsource, golden
+│   │   ├── llm/                  # openrouter.go, prompts/, sgr.go, vision.go, models.go
+│   │   ├── s3/                   # client.go, presign.go, keys.go
+│   │   ├── worker/               # doc_parse, doc_embed, ticket_qualify, sla_watchdog, kb_draft, notify
+│   │   ├── model/
+│   │   └── pkg/                  # chunker, pdfrender, validator
+│   ├── migrations/
+│   └── tests/
+├── frontend/
+│   ├── next.config.ts            # БЕЗ basePath, output: 'standalone'
+│   └── src/app/
+│       ├── (public)/kb/          # публичная база знаний: SSR/ISR, SEO, виджет агента
+│       ├── (dashboard)/dashboard/  # кабинет клиента
+│       ├── (vendor)/vendor/        # кабинет производителя
+│       ├── (admin)/admin/          # суперадминка
+│       └── login, register
+└── scripts/                      # deploy.sh, backup.sh, ssl-init.sh, ssl-deploy-hook.sh, seed-admin
+```
+
+**Изменение против MAAS:** у Next.js НЕТ basePath. Причина: публичная база знаний `/kb`
+(SEO-воронка — часть продукта) и кабинеты живут в одном приложении route-группами.
+Nginx: `/kb`, `/dashboard`, `/vendor`, `/admin`, `/_next` → frontend; `/api`, `/health` → backend;
+`/` и всё остальное → WordPress.
+
+---
+
+## Правила Go Backend (наследуются от MAAS без изменений)
+
+- chi, pgx/v5 (НЕ lib/pq, НЕ ORM), goose, slog, DI через конструкторы, context.Context первым аргументом.
+- Ошибки: `fmt.Errorf("описание: %w", err)`. Никогда panic.
+- Слои handler → service → repository, строго.
+- Ответы API: `{ "data": ..., "meta": { request_id, timestamp } }` / `{ "error": { code, message, details }, "meta": ... }`.
+- SQL только параметризованный. **Каждый запрос данных ролей фильтрует по org_id из контекста авторизации** —
+  это перенос правила user_id-изоляции MAAS на организационную модель. Тикет видят: организация клиента,
+  организации-адресаты эскалаций, суперадмин. Данные производителей изолированы друг от друга АБСОЛЮТНО.
+- Фоновые LLM — только воркеры. Handler не вызывает LLM синхронно, ЕДИНСТВЕННОЕ исключение —
+  чат агента (стриминг ответа клиенту).
+- Каждый LLM-вызов → `usage_log` (модель, токены, стоимость, org_id, ticket_id/doc_source_id).
+- Каждая мутация тикета/entitlement/зоны поддержки → `audit_log` (actor, action, rationale).
+
+### OpenRouter модели
+
+```
+OPENROUTER_MODEL_QUALIFY=google/gemini-2.5-flash      # квалификация тикетов: ДЕШЁВАЯ, низкий reasoning (SGR)
+OPENROUTER_MODEL_ANSWER=anthropic/claude-sonnet-4     # синтез ответов агента: УМНАЯ
+OPENROUTER_MODEL_VISION=google/gemini-2.5-pro         # VLM-парсинг документации (таблицы/схемы/формулы)
+OPENROUTER_MODEL_KB=anthropic/claude-sonnet-4         # генерация статей из тикетов: УМНАЯ
+OPENROUTER_MODEL_EMBED=openai/text-embedding-3-large
+```
+
+НЕ используй умную модель для квалификации. НЕ используй дешёвую для синтеза ответов и статей.
+
+---
+
+## Миграции PostgreSQL (домен)
+
+```sql
+-- 001_init: users, organizations (type), org_members (role), api_keys, sessions
+-- 002_billing: plans (per org_type), subscriptions (org_id), payments, ticket_quotas
+-- 003_installations: installations (client_org_id, criticality, snapshot_allowed, emergency_contact),
+--                    installation_products (product_id, version, environment JSONB),
+--                    products (manufacturer_org_id, slug, kind IN plc/scada/hmi/drive/sensor/network/other)
+-- 004_entitlements: entitlements (installation_product_id, serial_or_license, supplier_org_id,
+--                    integrator_org_id, purchase_date, warranty_until, verified_by IN manufacturer/partner/client_claim)
+-- 005_docs: doc_sources (product_id, version, s3_original_key, content_hash, status, page_count),
+--           doc_chunks (doc_source_id, page_number, s3_page_key, content_md, embedding vector(3072), section)
+-- 006_tickets: tickets (installation_id, type IN typical/defect/warranty/application/cross_vendor,
+--              priority IN emergency/degraded/question, status, ball_owner_org_id nullable),
+--              ticket_events (append-only: kind, actor_org_id, payload JSONB, created_at),
+--              ticket_attachments (s3_key), ticket_links (стыковые: parent/related)
+-- 007_sla: support_zones (manufacturer_org_id, policy JSONB: версии/границы/часы — YAML-импорт),
+--          sla_policies (plan_id, priority, react_minutes), sla_timers (ticket_id, deadline, state)
+-- 008_kb: kb_articles (product_id nullable, version_range, origin_ticket_id nullable, status, slug, content_md),
+--         kb_embeddings
+-- 009_agent: agent_conversations, agent_messages (citations JSONB), qualification_feedback,
+--            golden_sets, golden_questions (question, reference_answer, must_cite_page)
+-- 010_ops: usage_log, audit_log, fallback_log (needed_role, missing_org_name, ticket_id), notifications
+```
+
+Ключевые констрейнты:
+- tickets.status конечный автомат; переходы ТОЛЬКО через ticket_events (триггер или сервис-слой).
+- entitlements: UNIQUE(installation_product_id, serial_or_license).
+- doc_chunks.page_number NOT NULL — цитата без страницы невалидна.
+- support_zones.policy валидируется схемой при импорте; невалидная политика не применяется.
+
+---
+
+## Критические правила (НИКОГДА не нарушай)
+
+1. **Nginx всегда внутри Docker. Наружу только 80/443.**
+2. **Postgres/MySQL порты не наружу в production.**
+3. **Все LLM — через OpenRouter.** Vendor-neutral copy в UI (см. asutport-llm-provider-privacy.mdc).
+4. **Документация и всё цитируемое — в S3.** Бинарники в Postgres запрещены. Доступ только presigned URL после проверки прав.
+5. **Ответ агента без разрешимой citation (source_id + page + s3_page_key) не отдаётся пользователю.**
+6. **Агент не выносит вердикт «дефект», не решает денежные вопросы, не рискует на emergency.** Пороги асимметричны.
+7. **Квалификация — дешёвая модель + SGR. Синтез и статьи — умная.** Не менять местами.
+8. **SLA-время считает сервер от append-only событий.** Мутация состояния тикета мимо ticket_events запрещена.
+9. **Каждый запрос фильтрует по org_id.** Данные производителей изолированы. Партнёр видит только свои entitlement.
+10. **Каждый LLM-вызов → usage_log. Каждая мутация тикета → audit_log. Фолбэк → fallback_log.**
+11. **Golden sets гоняются при каждом изменении ИИ-пайплайна.** Падение метрики = красный билд.
+12. **Версионность знаний:** чанк без метки версии продукта не индексируется; ретривал фильтрует по версии из профиля.
+13. **Секреты только env. .env не в git. Content-hash перед парсингом (не жечь токены повторно).**
+14. **Роутинг: `/` → WordPress, `/kb` + `/dashboard` + `/vendor` + `/admin` → Next.js, `/api` → Go. Без basePath.**
+15. **Суперадмин — через seed/CLI.** Все действия суперадмина → audit_log. Impersonate логируется.
+16. **ИБ:** все изменения с доступом к данным, auth, upload, LLM — по `asutport-security.mdc` и чеклисту перед merge.
+17. **Процесс разработки:** минимальный diff, без scope creep — по `asutport-coding-process.mdc`.

@@ -1,0 +1,102 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+:root {
+  --bg: #131619;
+  --panel: #1b2025;
+  --panel2: #21272d;
+  --line: #2a3138;
+  --line2: #38414a;
+  --text: #e6eaee;
+  --mut: #93a0ac;
+  --dim: #5f6c78;
+  --acc: #3fc8b7;
+  --green: #4cc38a;
+  --amber: #f2a33c;
+  --red: #e5484d;
+}
+
+@layer base {
+  * {
+    @apply border-line;
+  }
+
+  body {
+    @apply bg-bg text-text font-sans antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--acc);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .hmi-card {
+    @apply rounded-[10px] border border-line bg-panel;
+  }
+
+  .hmi-btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-acc px-4 py-2 text-sm font-medium text-[#0b2723] transition hover:brightness-110;
+  }
+
+  .hmi-btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-line2 bg-panel2 px-4 py-2 text-sm font-medium text-text transition hover:bg-panel;
+  }
+
+  .lamp {
+    @apply relative inline-block h-3 w-3 rounded-full;
+  }
+
+  .lamp-g {
+    background: var(--green);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--green) 60%, transparent);
+  }
+
+  .lamp-a {
+    background: var(--amber);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--amber) 60%, transparent);
+    animation: lamp-blink 1.2s ease-in-out infinite;
+  }
+
+  .lamp-r {
+    background: var(--red);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--red) 70%, transparent);
+    animation: lamp-blink 0.8s ease-in-out infinite;
+  }
+
+  .lamp-off {
+    @apply bg-line2;
+    box-shadow: none;
+  }
+
+  .kb-page {
+    --bg: #f6f8fa;
+    --panel: #ffffff;
+    --panel2: #eef2f6;
+    --line: #d8dee6;
+    --line2: #c5ced8;
+    --text: #1a2332;
+    --mut: #4a5568;
+    --dim: #718096;
+    --acc: #0d9488;
+  }
+}
+
+@keyframes lamp-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lamp-a,
+  .lamp-r {
+    animation: none;
+  }
+}
