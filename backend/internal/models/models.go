@@ -30,10 +30,11 @@ type Organization struct {
 	ReviewComment string
 	IsPersonal    bool
 	ReviewStatus  string
-	ReviewedAt    *time.Time
-	ReviewedBy    *uuid.UUID
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ReviewedAt          *time.Time
+	ReviewedBy          *uuid.UUID
+	OnboardingTicketID  *uuid.UUID
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type OrgMember struct {
@@ -170,4 +171,49 @@ type RegistrationVerification struct {
 	ExpiresAt   time.Time
 	UsedAt      *time.Time
 	CreatedAt   time.Time
+}
+
+type Ticket struct {
+	ID               uuid.UUID
+	ClientOrgID      uuid.UUID
+	InstallationID   *uuid.UUID
+	Type             string
+	Priority         string
+	Status           string
+	BallOwnerOrgID   *uuid.UUID
+	Subject          string
+	CreatedByUserID  *uuid.UUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	ClientOrgName    string
+	ClientOrgType    string
+	ClientOrgINN     string
+	ClientReviewStatus string
+}
+
+type TicketEvent struct {
+	ID          uuid.UUID
+	TicketID    uuid.UUID
+	Kind        string
+	ActorUserID *uuid.UUID
+	ActorOrgID  *uuid.UUID
+	Payload     []byte
+	CreatedAt   time.Time
+	ActorName   string
+	ActorEmail  string
+	IsPlatform  bool
+}
+
+type TicketAttachment struct {
+	ID                uuid.UUID
+	TicketID          uuid.UUID
+	EventID           *uuid.UUID
+	S3Key             string
+	Filename          string
+	ContentType       string
+	SizeBytes         int64
+	UploadedByUserID  uuid.UUID
+	UploadedByOrgID   uuid.UUID
+	Status            string
+	CreatedAt         time.Time
 }

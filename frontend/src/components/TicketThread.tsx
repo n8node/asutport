@@ -1,0 +1,366 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { authFetch } from "@/lib/auth-session";
+
+type Ticket = {
+  id: string;
+  subject: string;
+  status: string;
+  client_org_name?: string;
+  client_org_type?: string;
+  client_org_inn?: string;
+  client_review_status?: string;
+  updated_at?: string;
+};
+
+type TicketEvent = {
+  id: string;
+  kind: string;
+  payload?: {
+    text?: string;
+    filename?: string;
+    attachment_id?: string;
+    rationale?: string;
+  };
+  actor_name?: string;
+  actor_email?: string;
+  is_platform?: boolean;
+  created_at: string;
+};
+
+type TicketThreadProps = {
+  ticketID: string;
+  mode: "client" | "admin";
+  onTicketUpdate?: (ticket: Ticket) => void;
+};
+
+export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadProps) {
+  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [events, setEvents] = useState<TicketEvent[]>([]);
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState<"loading" | "idle" | "error">("loading");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [rejectRationale, setRejectRationale] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    setStatus("loading");
+    try {
+      const [ticketRes, eventsRes] = await Promise.all([
+        authFetch(`/api/v1/tickets/${ticketID}`),
+        authFetch(`/api/v1/tickets/${ticketID}/events`),
+      ]);
+      const ticketBody = (await ticketRes.json()) as { data?: Ticket; error?: { message?: string } };
+      const eventsBody = (await eventsRes.json()) as { data?: TicketEvent[]; error?: { message?: string } };
+      if (!ticketRes.ok || !eventsRes.ok) {
+        setStatus("error");
+        setError(ticketBody.error?.message || eventsBody.error?.message || "Не удалось загрузить тикет");
+        return;
+      }
+      setTicket(ticketBody.data || null);
+      setEvents(eventsBody.data || []);
+      if (ticketBody.data) {
+        onTicketUpdate?.(ticketBody.data);
+      }
+      setStatus("idle");
+      setError("");
+    } catch {
+      setStatus("error");
+      setError("Сервис тикетов временно недоступен");
+    }
+  }, [ticketID, onTicketUpdate]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function sendMessage() {
+    const body = text.trim();
+    if (!body || busy) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await authFetch(`/api/v1/tickets/${ticketID}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ text: body }),
+      });
+      const payload = (await response.json()) as {
+        data?: { event?: TicketEvent; ticket?: Ticket };
+        error?: { message?: string };
+      };
+      if (!response.ok) {
+        setError(payload.error?.message || "Не удалось отправить сообщение");
+        return;
+      }
+      setText("");
+      if (payload.data?.ticket) {
+        setTicket(payload.data.ticket);
+        onTicketUpdate?.(payload.data.ticket);
+      }
+      if (payload.data?.event) {
+        setEvents((prev) => [...prev, payload.data!.event!]);
+      } else {
+        await load();
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadFile(file: File) {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const presignRes = await authFetch(`/api/v1/tickets/${ticketID}/attachments/presign`, {
+        method: "POST",
+        body: JSON.stringify({
+          filename: file.name,
+          content_type: file.type,
+          size_bytes: file.size,
+        }),
+      });
+      const presignBody = (await presignRes.json()) as {
+        data?: { attachment_id?: string; upload_url?: string };
+        error?: { message?: string };
+      };
+      if (!presignRes.ok || !presignBody.data?.upload_url || !presignBody.data.attachment_id) {
+        setError(presignBody.error?.message || "Не удалось подготовить загрузку");
+        return;
+      }
+      const putRes = await fetch(presignBody.data.upload_url, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) {
+        setError("Не удалось загрузить файл в хранилище");
+        return;
+      }
+      const completeRes = await authFetch(
+        `/api/v1/tickets/${ticketID}/attachments/${presignBody.data.attachment_id}/complete`,
+        { method: "POST", body: "{}" },
+      );
+      const completeBody = (await completeRes.json()) as {
+        data?: { event?: TicketEvent; ticket?: Ticket };
+        error?: { message?: string };
+      };
+      if (!completeRes.ok) {
+        setError(completeBody.error?.message || "Не удалось прикрепить файл");
+        return;
+      }
+      if (completeBody.data?.ticket) {
+        setTicket(completeBody.data.ticket);
+        onTicketUpdate?.(completeBody.data.ticket);
+      }
+      if (completeBody.data?.event) {
+        setEvents((prev) => [...prev, completeBody.data!.event!]);
+      } else {
+        await load();
+      }
+    } finally {
+      setBusy(false);
+      if (fileRef.current) {
+        fileRef.current.value = "";
+      }
+    }
+  }
+
+  async function reviewOrg(action: "approve" | "reject") {
+    if (busy) {
+      return;
+    }
+    if (action === "reject" && !rejectRationale.trim()) {
+      setError("Укажите причину отклонения");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await authFetch(`/api/v1/admin/tickets/${ticketID}/${action}-org`, {
+        method: "POST",
+        body: JSON.stringify({ rationale: rejectRationale.trim() }),
+      });
+      const body = (await response.json()) as { data?: Ticket; error?: { message?: string } };
+      if (!response.ok) {
+        setError(body.error?.message || "Не удалось обновить статус организации");
+        return;
+      }
+      if (body.data) {
+        setTicket(body.data);
+        onTicketUpdate?.(body.data);
+      }
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openAttachment(attachmentID: string) {
+    const response = await authFetch(`/api/v1/tickets/${ticketID}/attachments/${attachmentID}/url`);
+    const body = (await response.json()) as { data?: { url?: string }; error?: { message?: string } };
+    if (!response.ok || !body.data?.url) {
+      setError(body.error?.message || "Не удалось открыть файл");
+      return;
+    }
+    window.open(body.data.url, "_blank", "noopener,noreferrer");
+  }
+
+  if (status === "loading") {
+    return <p className="text-sm text-[#6f6a62]">Загружаем тикет...</p>;
+  }
+  if (status === "error") {
+    return <p className="text-sm text-[#b42318]">{error || "Ошибка загрузки"}</p>;
+  }
+
+  const closed = ticket?.status === "closed";
+
+  return (
+    <div className="space-y-4">
+      <header className="rounded-lg border border-[#dedbd3] bg-white p-4">
+        <h1 className="text-lg font-semibold text-[#18212f]">{ticket?.subject}</h1>
+        <div className="mt-2 flex flex-wrap gap-3 text-[12px] text-[#6f6a62]">
+          <span>Статус: {statusLabel(ticket?.status)}</span>
+          {ticket?.client_org_inn ? <span>ИНН: {ticket.client_org_inn}</span> : null}
+          {ticket?.client_review_status ? (
+            <span>Проверка org: {ticket.client_review_status}</span>
+          ) : null}
+        </div>
+      </header>
+
+      <section className="rounded-lg border border-[#dedbd3] bg-white">
+        <div className="max-h-[480px] space-y-3 overflow-y-auto p-4">
+          {events.map((event) => (
+            <article key={event.id} className="rounded-lg border border-[#ebe9e4] bg-[#faf9f7] px-3 py-2.5">
+              <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-[#8a857d]">
+                <span>{event.is_platform ? "Платформа ASUTPORT" : event.actor_name || event.actor_email || "Участник"}</span>
+                <span>·</span>
+                <span>{formatDate(event.created_at)}</span>
+              </div>
+              {event.kind === "message" ? (
+                <p className="whitespace-pre-wrap text-[13px] leading-6 text-[#18212f]">{event.payload?.text}</p>
+              ) : null}
+              {event.kind === "attachment_added" ? (
+                <button
+                  type="button"
+                  className="text-[13px] font-medium text-[#185fa5] hover:underline"
+                  onClick={() => void openAttachment(event.payload?.attachment_id || "")}
+                >
+                  📎 {event.payload?.filename || "Вложение"}
+                </button>
+              ) : null}
+              {event.kind === "org_approved" || event.kind === "org_rejected" ? (
+                <p className="text-[13px] leading-6 text-[#18212f]">
+                  {event.kind === "org_approved" ? "Организация активирована." : "Организация отклонена."}
+                  {event.payload?.rationale ? ` ${event.payload.rationale}` : ""}
+                </p>
+              ) : null}
+            </article>
+          ))}
+        </div>
+
+        {!closed ? (
+          <div className="border-t border-[#ebe9e4] p-4">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={3}
+              placeholder="Напишите сообщение..."
+              className="w-full rounded-lg border border-[#d7d2ca] px-3 py-2 text-[13px] outline-none focus:border-[#185fa5]"
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={busy || !text.trim()}
+                onClick={() => void sendMessage()}
+                className="rounded-lg bg-[#18212f] px-4 py-2 text-[12px] font-medium text-white disabled:opacity-50"
+              >
+                {busy ? "Отправка..." : "Отправить"}
+              </button>
+              <label className="cursor-pointer rounded-lg border border-[#d7d2ca] px-4 py-2 text-[12px] hover:bg-[#ebe9e4]">
+                Прикрепить файл
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,image/png,image/jpeg,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      void uploadFile(file);
+                    }
+                  }}
+                />
+              </label>
+              <span className="text-[11px] text-[#8a857d]">PDF, PNG, JPEG до 20 МБ</span>
+            </div>
+          </div>
+        ) : (
+          <div className="border-t border-[#ebe9e4] p-4 text-[13px] text-[#6f6a62]">Тикет закрыт.</div>
+        )}
+      </section>
+
+      {mode === "admin" && ticket?.client_review_status === "pending_review" && !closed ? (
+        <section className="rounded-lg border border-[#dedbd3] bg-white p-4">
+          <h2 className="text-[12px] font-medium uppercase tracking-[0.08em] text-[#8a857d]">
+            Решение по организации
+          </h2>
+          <textarea
+            value={rejectRationale}
+            onChange={(e) => setRejectRationale(e.target.value)}
+            rows={2}
+            placeholder="Комментарий (обязателен при отклонении)"
+            className="mt-3 w-full rounded-lg border border-[#d7d2ca] px-3 py-2 text-[13px] outline-none focus:border-[#185fa5]"
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void reviewOrg("approve")}
+              className="rounded-lg bg-[#1d4ed8] px-4 py-2 text-[12px] font-medium text-white disabled:opacity-50"
+            >
+              Активировать организацию
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void reviewOrg("reject")}
+              className="rounded-lg border border-[#d7d2ca] px-4 py-2 text-[12px] disabled:opacity-50"
+            >
+              Отклонить
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {error ? <p className="text-sm text-[#b42318]">{error}</p> : null}
+    </div>
+  );
+}
+
+function statusLabel(status?: string) {
+  switch (status) {
+    case "waiting_client":
+      return "Ожидает клиента";
+    case "waiting_platform":
+      return "Ожидает платформу";
+    case "closed":
+      return "Закрыт";
+    default:
+      return status || "—";
+  }
+}
+
+function formatDate(value: string) {
+  try {
+    return new Date(value).toLocaleString("ru-RU");
+  } catch {
+    return value;
+  }
+}

@@ -7,9 +7,13 @@ import (
 )
 
 const (
-	SubjectRegistrationConfirm = "Подтверждение регистрации на платформе ASUTPORT"
-	SubjectAdminUserRegistered = "ASUTPORT — новая регистрация пользователя"
-	SubjectSMTPTest            = "ASUTPORT — тест SMTP"
+	SubjectRegistrationConfirm   = "Подтверждение регистрации на платформе ASUTPORT"
+	SubjectAdminUserRegistered   = "ASUTPORT — новая регистрация пользователя"
+	SubjectOnboardingTicket        = "ASUTPORT — тикет проверки организации"
+	SubjectTicketActivity          = "ASUTPORT — обновление в тикете"
+	SubjectOrgReviewApproved       = "ASUTPORT — организация активирована"
+	SubjectOrgReviewRejected       = "ASUTPORT — заявка организации отклонена"
+	SubjectSMTPTest                = "ASUTPORT — тест SMTP"
 )
 
 type RegistrationMail struct {
@@ -217,4 +221,127 @@ func orgTypeLabel(raw string) string {
 	default:
 		return raw
 	}
+}
+
+type OnboardingTicketMail struct {
+	UserEmail      string
+	FullName       string
+	OrgName        string
+	TicketID       string
+	TicketURL      string
+	AdminTicketURL string
+}
+
+type TicketActivityMail struct {
+	TicketID      string
+	OrgName       string
+	Subject       string
+	Preview       string
+	IsAdminTarget bool
+	ClientURL     string
+	AdminURL      string
+}
+
+type OrgReviewResultMail struct {
+	OrgName   string
+	Approved  bool
+	Rationale string
+	LoginURL  string
+}
+
+func OnboardingTicketHTML(data OnboardingTicketMail) string {
+	name := strings.TrimSpace(data.FullName)
+	if name == "" {
+		name = "коллега"
+	}
+	body := fmt.Sprintf(`
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1f2933;">Здравствуйте, <strong>%s</strong>!</p>
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#4b5563;">Email подтверждён. Для активации организации <strong>%s</strong> откройте тикет проверки и приложите подтверждающие документы.</p>
+<table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 0 24px;">
+  <tr>
+    <td style="border-radius:8px;background:#0d9488;">
+      <a href="%s" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">Открыть тикет</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:0;font-size:13px;line-height:1.5;color:#9aa5b1;">ID тикета: %s</p>`,
+		html.EscapeString(name),
+		html.EscapeString(data.OrgName),
+		html.EscapeString(data.TicketURL),
+		html.EscapeString(data.TicketID),
+	)
+	return layout("Тикет проверки", "Проверка организации", body)
+}
+
+func OnboardingTicketText(data OnboardingTicketMail) string {
+	return fmt.Sprintf("Email подтверждён. Откройте тикет проверки организации %s: %s", data.OrgName, data.TicketURL)
+}
+
+func OnboardingTicketAdminHTML(data OnboardingTicketMail) string {
+	body := fmt.Sprintf(`
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1f2933;">Создан тикет проверки организации <strong>%s</strong>.</p>
+<p style="margin:0 0 16px;font-size:13px;color:#6b7280;">Пользователь: %s (%s)</p>
+<table role="presentation" cellspacing="0" cellpadding="0">
+  <tr>
+    <td style="border-radius:8px;background:#1b2025;">
+      <a href="%s" style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:600;color:#3fc8b7;text-decoration:none;">Открыть тикет</a>
+    </td>
+  </tr>
+</table>`,
+		html.EscapeString(data.OrgName),
+		html.EscapeString(data.FullName),
+		html.EscapeString(data.UserEmail),
+		html.EscapeString(data.AdminTicketURL),
+	)
+	return layout("Тикет onboarding", "Уведомление администратора", body)
+}
+
+func TicketActivityHTML(data TicketActivityMail) string {
+	body := fmt.Sprintf(`
+<p style="margin:0 0 12px;font-size:15px;line-height:1.6;color:#1f2933;">%s</p>
+<p style="margin:0 0 8px;font-size:13px;color:#6b7280;">Организация: %s</p>
+<p style="margin:0 0 20px;font-size:13px;color:#4b5563;">%s</p>`,
+		html.EscapeString(data.Subject),
+		html.EscapeString(data.OrgName),
+		html.EscapeString(data.Preview),
+	)
+	url := data.ClientURL
+	if data.IsAdminTarget {
+		url = data.AdminURL
+	}
+	body += fmt.Sprintf(`<table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="border-radius:8px;background:#0d9488;"><a href="%s" style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">Открыть тикет</a></td></tr></table>`, html.EscapeString(url))
+	return layout("Обновление тикета", "Уведомление", body)
+}
+
+func TicketActivityText(data TicketActivityMail) string {
+	url := data.ClientURL
+	if data.IsAdminTarget {
+		url = data.AdminURL
+	}
+	return fmt.Sprintf("%s\n%s\n%s", data.Subject, data.Preview, url)
+}
+
+func OrgReviewResultHTML(data OrgReviewResultMail) string {
+	title := "Организация активирована"
+	if !data.Approved {
+		title = "Заявка отклонена"
+	}
+	body := fmt.Sprintf(`
+<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#1f2933;">Организация <strong>%s</strong>: %s</p>
+<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#4b5563;">%s</p>
+<table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="border-radius:8px;background:#0d9488;"><a href="%s" style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">Войти в кабинет</a></td></tr></table>`,
+		html.EscapeString(data.OrgName),
+		html.EscapeString(title),
+		html.EscapeString(data.Rationale),
+		html.EscapeString(data.LoginURL),
+	)
+	return layout(title, "Результат проверки", body)
+}
+
+func OrgReviewResultText(data OrgReviewResultMail) string {
+	status := "активирована"
+	if !data.Approved {
+		status = "отклонена"
+	}
+	return fmt.Sprintf("Организация %s %s.\n%s\n%s", data.OrgName, status, data.Rationale, data.LoginURL)
 }

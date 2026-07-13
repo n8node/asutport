@@ -53,7 +53,7 @@ func (r *OrgRepo) CreateWithReview(ctx context.Context, p OrgCreateParams) (*mod
 		)
 		VALUES ($1, $2, $3::org_type, $4, $5, $6, $7, $8, $9, $10, $11::org_review_status)
 		RETURNING id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
-			review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, created_at, updated_at`
+			review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, onboarding_ticket_id, created_at, updated_at`
 	row := r.pool.QueryRow(ctx, q,
 		id, p.Name, p.Type, p.Slug, p.LegalName, p.INN, p.Website, p.ContactPhone,
 		p.ReviewComment, p.IsPersonal, p.ReviewStatus,
@@ -67,7 +67,7 @@ func (r *OrgRepo) CreateWithReview(ctx context.Context, p OrgCreateParams) (*mod
 
 func (r *OrgRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Organization, error) {
 	q := `SELECT id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
-		review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, created_at, updated_at
+		review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, onboarding_ticket_id, created_at, updated_at
 		FROM organizations WHERE id = $1`
 	row := r.pool.QueryRow(ctx, q, id)
 	o, err := scanOrg(row)
@@ -79,7 +79,7 @@ func (r *OrgRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Organizati
 
 func (r *OrgRepo) GetBySlug(ctx context.Context, slug string) (*models.Organization, error) {
 	q := `SELECT id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
-		review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, created_at, updated_at
+		review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, onboarding_ticket_id, created_at, updated_at
 		FROM organizations WHERE slug = $1`
 	row := r.pool.QueryRow(ctx, q, slug)
 	o, err := scanOrg(row)
@@ -104,7 +104,7 @@ func (r *OrgRepo) List(ctx context.Context, p OrgListParams) ([]models.Organizat
 		p.Offset = 0
 	}
 	q := `SELECT id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
-			review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, created_at, updated_at
+			review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, onboarding_ticket_id, created_at, updated_at
 		FROM organizations
 		WHERE ($1 = '' OR review_status::text = $1)
 			AND ($2 = '' OR type::text = $2)
@@ -124,6 +124,34 @@ func (r *OrgRepo) List(ctx context.Context, p OrgListParams) ([]models.Organizat
 		out = append(out, *o)
 	}
 	return out, rows.Err()
+}
+
+func (r *OrgRepo) SetReviewStatus(ctx context.Context, orgID uuid.UUID, status string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE organizations SET review_status = $2::org_review_status, updated_at = now() WHERE id = $1`,
+		orgID, status,
+	)
+	if err != nil {
+		return fmt.Errorf("set organization review status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *OrgRepo) LinkOnboardingTicket(ctx context.Context, orgID, ticketID uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE organizations SET onboarding_ticket_id = $2, updated_at = now() WHERE id = $1`,
+		orgID, ticketID,
+	)
+	if err != nil {
+		return fmt.Errorf("link onboarding ticket: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *OrgRepo) UpdateReviewStatus(ctx context.Context, orgID, reviewerID uuid.UUID, status string) error {
@@ -147,7 +175,7 @@ func scanOrg(row pgx.Row) (*models.Organization, error) {
 	if err := row.Scan(
 		&o.ID, &o.Name, &o.Type, &o.Slug, &o.IsActive, &o.LegalName, &o.INN, &o.Website,
 		&o.ContactPhone, &o.ReviewComment, &o.IsPersonal, &o.ReviewStatus, &o.ReviewedAt,
-		&o.ReviewedBy, &o.CreatedAt, &o.UpdatedAt,
+		&o.ReviewedBy, &o.OnboardingTicketID, &o.CreatedAt, &o.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}

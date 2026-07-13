@@ -122,6 +122,12 @@ export function AdminOrgRequests() {
                 </div>
               </div>
               <div className="flex gap-2">
+                <a
+                  href="/app/admin/tickets"
+                  className="rounded border border-[#d7d2ca] px-3 py-1.5 text-[12px] font-medium text-[#185fa5] hover:bg-[#ebe9e4]"
+                >
+                  Тикеты проверки
+                </a>
                 <button
                   type="button"
                   className="rounded bg-[#1d4ed8] px-3 py-1.5 text-[12px] font-medium text-white hover:bg-[#1e40af]"

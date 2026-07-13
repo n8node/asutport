@@ -91,12 +91,15 @@ func main() {
 	adminUsers := repository.NewAdminUserRepo(pool)
 	adminOrgs := repository.NewAdminOrgRepo(pool)
 	regVerify := repository.NewRegistrationVerificationRepo(pool)
+	ticketRepo := repository.NewTicketRepo(pool)
 	emailLoader := email.NewLoader(adminSettings, cfg.JWTSecret)
 	emailNotify := email.NewNotifier(emailLoader)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
+	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, s3Client, emailNotify)
 
-	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, emailNotify, authSvc)
+	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, emailNotify, ticketSvc, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
+	ticketH := handler.NewTicketHandler(ticketSvc, orgs)
 	adminOrgH := handler.NewAdminOrgHandler(adminOrgs, orgs)
 	adminUserH := handler.NewAdminUserHandler(adminUsers)
 	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
@@ -129,6 +132,18 @@ func main() {
 			Org: server.OrgHandlers{
 				ListMine: orgH.ListMine,
 				Current:  orgH.Current,
+			},
+			Ticket: server.TicketHandlers{
+				GetOnboarding:       ticketH.GetOnboarding,
+				Get:                 ticketH.Get,
+				ListEvents:          ticketH.ListEvents,
+				PostMessage:         ticketH.PostMessage,
+				PresignAttachment:   ticketH.PresignAttachment,
+				CompleteAttachment:  ticketH.CompleteAttachment,
+				AttachmentURL:       ticketH.AttachmentURL,
+				ListOnboardingAdmin: ticketH.ListOnboardingAdmin,
+				ApproveOrg:          ticketH.ApproveOrg,
+				RejectOrg:           ticketH.RejectOrg,
 			},
 			AdminOrg: server.AdminOrgHandlers{
 				List:         adminOrgH.List,

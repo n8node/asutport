@@ -37,7 +37,11 @@ export function ConfirmRegistrationContent() {
           return;
         }
         setStatus("success");
-        setMessage(body.data?.message || "Email подтверждён.");
+        setMessage(
+          body.data?.review_status === "pending_review"
+            ? body.data.message || "Email подтверждён. Войдите и откройте тикет проверки организации."
+            : body.data?.message || "Email подтверждён.",
+        );
       })
       .catch(() => {
         setStatus("error");

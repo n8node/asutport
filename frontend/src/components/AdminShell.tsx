@@ -65,7 +65,7 @@ const navSections: AdminNavSection[] = [
   {
     title: "Платформа",
     items: [
-      { label: "Тикеты", href: "#tickets", icon: TicketIcon, badge: "—" },
+      { label: "Тикеты onboarding", href: "/app/admin/tickets", icon: TicketIcon, badge: "!" },
       { label: "Документы", href: "#docs", icon: FileIcon },
       { label: "Workers", href: "#workers", icon: CpuIcon, badge: "—", tone: "yellow" },
       { label: "LLM costs", href: "#llm", icon: SparkIcon },

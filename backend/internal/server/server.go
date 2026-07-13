@@ -14,6 +14,7 @@ type Handlers struct {
 	Health    http.Handler
 	Auth      AuthHandlers
 	Org       OrgHandlers
+	Ticket    TicketHandlers
 	AdminOrg  AdminOrgHandlers
 	AdminUser AdminUserHandlers
 	APIKey    APIKeyHandlers
@@ -35,6 +36,19 @@ type AuthHandlers struct {
 type OrgHandlers struct {
 	ListMine http.HandlerFunc
 	Current  http.HandlerFunc
+}
+
+type TicketHandlers struct {
+	GetOnboarding      http.HandlerFunc
+	Get                http.HandlerFunc
+	ListEvents         http.HandlerFunc
+	PostMessage        http.HandlerFunc
+	PresignAttachment  http.HandlerFunc
+	CompleteAttachment http.HandlerFunc
+	AttachmentURL      http.HandlerFunc
+	ListOnboardingAdmin http.HandlerFunc
+	ApproveOrg         http.HandlerFunc
+	RejectOrg          http.HandlerFunc
 }
 
 type AdminOrgHandlers struct {
@@ -123,8 +137,21 @@ func New(opts Options) http.Handler {
 			r.Get("/org", h.Org.Current)
 			r.Get("/orgs", h.Org.ListMine)
 
+			r.Get("/tickets/onboarding", h.Ticket.GetOnboarding)
+			r.Route("/tickets/{ticketID}", func(r chi.Router) {
+				r.Get("/", h.Ticket.Get)
+				r.Get("/events", h.Ticket.ListEvents)
+				r.Post("/messages", h.Ticket.PostMessage)
+				r.Post("/attachments/presign", h.Ticket.PresignAttachment)
+				r.Post("/attachments/{attachmentID}/complete", h.Ticket.CompleteAttachment)
+				r.Get("/attachments/{attachmentID}/url", h.Ticket.AttachmentURL)
+			})
+
 			r.Group(func(r chi.Router) {
 				r.Use(appmw.RequireSuperAdmin)
+				r.Get("/admin/tickets/onboarding", h.Ticket.ListOnboardingAdmin)
+				r.Post("/admin/tickets/{ticketID}/approve-org", h.Ticket.ApproveOrg)
+				r.Post("/admin/tickets/{ticketID}/reject-org", h.Ticket.RejectOrg)
 				r.Get("/admin/orgs", h.AdminOrg.List)
 				r.Get("/admin/orgs/{orgID}", h.AdminOrg.Get)
 				r.Patch("/admin/orgs/{orgID}", h.AdminOrg.Patch)

@@ -28,6 +28,7 @@ type AuthHandler struct {
 	regVerify    *repository.RegistrationVerificationRepo
 	emailLoader  *email.Loader
 	emailNotify  *email.Notifier
+	ticketSvc    *service.TicketService
 	authSvc      *service.AuthService
 }
 
@@ -40,6 +41,7 @@ func NewAuthHandler(
 	regVerify *repository.RegistrationVerificationRepo,
 	emailLoader *email.Loader,
 	emailNotify *email.Notifier,
+	ticketSvc *service.TicketService,
 	authSvc *service.AuthService,
 ) *AuthHandler {
 	return &AuthHandler{
@@ -51,6 +53,7 @@ func NewAuthHandler(
 		regVerify:   regVerify,
 		emailLoader: emailLoader,
 		emailNotify: emailNotify,
+		ticketSvc:   ticketSvc,
 		authSvc:     authSvc,
 	}
 }
@@ -314,7 +317,7 @@ func (h *AuthHandler) VerifyRegistration(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	nextStatus := postVerifyReviewStatus(verification.AccountType)
-	if err := h.orgs.UpdateReviewStatus(r.Context(), verification.OrgID, verification.UserID, nextStatus); err != nil {
+	if err := h.orgs.SetReviewStatus(r.Context(), verification.OrgID, nextStatus); err != nil {
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not verify registration")
 		return
 	}
@@ -322,11 +325,25 @@ func (h *AuthHandler) VerifyRegistration(w http.ResponseWriter, r *http.Request)
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not verify registration")
 		return
 	}
+	var onboardingTicketID string
+	if nextStatus == "pending_review" && h.ticketSvc != nil {
+		ticket, err := h.ticketSvc.CreateOnboardingIfNeeded(r.Context(), verification.OrgID, verification.UserID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not create onboarding ticket")
+			return
+		}
+		onboardingTicketID = ticket.ID.String()
+	}
+	message := "Email подтверждён. Теперь можно войти в кабинет."
+	if nextStatus == "pending_review" {
+		message = "Email подтверждён. Откройте тикет проверки организации и приложите документы."
+	}
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
-			"status":        "verified",
-			"message":       "Email подтверждён. Теперь можно войти в кабинет.",
-			"review_status": nextStatus,
+			"status":               "verified",
+			"message":              message,
+			"review_status":        nextStatus,
+			"onboarding_ticket_id": onboardingTicketID,
 		},
 	})
 }
@@ -546,7 +563,7 @@ func registrationOrgType(raw string) (accountType, orgType string, isPersonal bo
 
 func postVerifyReviewStatus(accountType string) string {
 	switch strings.TrimSpace(accountType) {
-	case "client_personal", "client_org":
+	case "client_personal":
 		return "active"
 	default:
 		return "pending_review"

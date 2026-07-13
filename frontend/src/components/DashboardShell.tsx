@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 
 type DashboardShellProps = {
   children: ReactNode;
+  activePath?: string;
+  reviewBanner?: boolean;
 };
 
 type MeResponse = {
@@ -41,14 +43,14 @@ const navSections: NavSection[] = [
   {
     title: "Обзор",
     items: [
-      { label: "Dashboard", href: "/app/dashboard", icon: DashboardIcon, active: true },
+      { label: "Dashboard", href: "/app/dashboard", icon: DashboardIcon },
       { label: "ИИ-агент", href: "#agent", icon: SparkIcon, badge: "скоро" },
     ],
   },
   {
     title: "Поддержка",
     items: [
-      { label: "Тикеты", href: "#tickets", icon: TicketIcon, badge: "0" },
+      { label: "Тикеты", href: "/app/dashboard/onboarding", icon: TicketIcon, badge: "0" },
       { label: "SLA-таймеры", href: "#sla", icon: ClockIcon },
       { label: "База знаний", href: "/app/kb", icon: BookIcon },
     ],
@@ -98,11 +100,13 @@ function orgTypeLabel(type?: string, isPersonal?: boolean) {
   }
 }
 
-export function DashboardShell({ children }: DashboardShellProps) {
+export function DashboardShell({ children, activePath = "/app/dashboard", reviewBanner = false }: DashboardShellProps) {
   const [email, setEmail] = useState("user@asutport.ru");
   const [orgName, setOrgName] = useState("Кабинет клиента");
   const [orgLabel, setOrgLabel] = useState("Клиент");
+  const [reviewStatus, setReviewStatus] = useState("");
   const avatar = useMemo(() => initials(email), [email]);
+  const pendingReview = reviewStatus === "pending_review" || reviewBanner;
 
   useEffect(() => {
     const token = sessionStorage.getItem("asutport_access_token");
@@ -120,6 +124,9 @@ export function DashboardShell({ children }: DashboardShellProps) {
         if (body?.data?.org?.name) {
           setOrgName(body.data.org.name);
           setOrgLabel(orgTypeLabel(body.data.org.type, body.data.org.is_personal));
+        }
+        if (body?.data?.org?.review_status) {
+          setReviewStatus(body.data.org.review_status);
         }
       })
       .catch(() => undefined);
@@ -155,21 +162,27 @@ export function DashboardShell({ children }: DashboardShellProps) {
               <ul className="space-y-px">
                 {section.items.map((item) => {
                   const Icon = item.icon;
+                  const href = pendingReview && item.href.startsWith("#") ? "/app/dashboard/onboarding" : item.href;
+                  const isActive = activePath === href || (item.label === "Dashboard" && activePath === "/app/dashboard");
+                  const disabled = pendingReview && item.href.startsWith("#") && href !== "/app/dashboard/onboarding";
                   return (
                     <li key={item.label}>
                       <Link
-                        href={item.href}
+                        href={href}
                         className={
-                          item.active
+                          isActive
                             ? "flex items-center gap-2 rounded-md bg-[#ebe9e4] px-3 py-[7px] font-medium text-[#18212f]"
-                            : "flex items-center gap-2 rounded-md px-3 py-[7px] text-[#5f6b7a] transition-colors hover:bg-[#ebe9e4] hover:text-[#18212f]"
+                            : disabled
+                              ? "flex items-center gap-2 rounded-md px-3 py-[7px] text-[#b5b0a8]"
+                              : "flex items-center gap-2 rounded-md px-3 py-[7px] text-[#5f6b7a] transition-colors hover:bg-[#ebe9e4] hover:text-[#18212f]"
                         }
+                        aria-disabled={disabled}
                       >
                         <Icon />
                         <span className="flex-1 truncate">{item.label}</span>
                         {item.badge ? (
                           <span className="rounded-[10px] bg-[#e6f1fb] px-1.5 py-0.5 text-[10px] font-semibold text-[#185fa5]">
-                            {item.badge}
+                            {pendingReview && item.label === "Тикеты" ? "!" : item.badge}
                           </span>
                         ) : null}
                       </Link>
@@ -193,13 +206,27 @@ export function DashboardShell({ children }: DashboardShellProps) {
           </div>
 
           <div className="rounded-[10px] border border-[#e8d9b3] bg-[#f6f0df] px-2.5 py-2 text-[11px]">
-            <span className="flex items-center gap-2 font-semibold text-[#6d4a1f]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#ba7517]" />
-              Профиль установки
-            </span>
-            <span className="mt-1 block truncate pl-3.5 text-[10px] text-[#9f7a3b]">
-              Заполните продукты и версии
-            </span>
+            {pendingReview ? (
+              <>
+                <span className="flex items-center gap-2 font-semibold text-[#6d4a1f]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#ba7517]" />
+                  Организация на проверке
+                </span>
+                <Link href="/app/dashboard/onboarding" className="mt-1 block pl-3.5 text-[10px] text-[#9f7a3b] underline">
+                  Открыть тикет и приложить документы
+                </Link>
+              </>
+            ) : (
+              <>
+                <span className="flex items-center gap-2 font-semibold text-[#6d4a1f]">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#ba7517]" />
+                  Профиль установки
+                </span>
+                <span className="mt-1 block truncate pl-3.5 text-[10px] text-[#9f7a3b]">
+                  Заполните продукты и версии
+                </span>
+              </>
+            )}
           </div>
 
           <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-[#e5e1da] pt-2">
@@ -237,7 +264,18 @@ export function DashboardShell({ children }: DashboardShellProps) {
           </div>
         </header>
 
-        <main className="max-w-6xl p-7 text-[13px]">{children}</main>
+        <main className="max-w-6xl p-7 text-[13px]">
+          {pendingReview && activePath === "/app/dashboard" ? (
+            <div className="mb-6 rounded-lg border border-[#e8d9b3] bg-[#f6f0df] px-4 py-3 text-[13px] text-[#6d4a1f]">
+              Организация ожидает проверки платформой.{" "}
+              <Link href="/app/dashboard/onboarding" className="font-medium underline">
+                Откройте тикет
+              </Link>{" "}
+              и приложите подтверждающие документы. Остальные разделы кабинета станут доступны после активации.
+            </div>
+          ) : null}
+          {children}
+        </main>
       </div>
     </div>
   );

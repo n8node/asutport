@@ -210,6 +210,10 @@ export function AuthCard({ mode }: AuthCardProps) {
       if (body.data.refresh_token) {
         sessionStorage.setItem("asutport_refresh_token", body.data.refresh_token);
       }
+      if (body.data.review_status === "pending_review") {
+        router.push("/app/dashboard/onboarding");
+        return;
+      }
       router.push(routeForAccount(body.data.role, body.data.org_type));
     } catch {
       setError("Сервис авторизации временно недоступен");
