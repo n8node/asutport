@@ -417,6 +417,12 @@ func sanitizeFilename(name string) string {
 
 func normalizeAttachmentContentType(filename, contentType string) (string, error) {
 	ct := strings.ToLower(strings.TrimSpace(contentType))
+	switch ct {
+	case "image/pjpeg":
+		ct = "image/jpeg"
+	case "application/x-pdf":
+		ct = "application/pdf"
+	}
 	if ct == "" || ct == "application/octet-stream" {
 		switch strings.ToLower(filepath.Ext(filename)) {
 		case ".pdf":

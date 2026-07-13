@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -73,9 +76,9 @@ func (h *TicketHandler) UploadAttachment(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer file.Close()
-	size := header.Size
-	if size <= 0 {
-		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid file size")
+	data, err := readUploadFile(file, service.MaxAttachmentBytes())
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", userFacingErr(err))
 		return
 	}
 	event, err := h.tickets.UploadAttachment(
@@ -86,8 +89,8 @@ func (h *TicketHandler) UploadAttachment(w http.ResponseWriter, r *http.Request)
 		p.IsSuperAdmin(),
 		header.Filename,
 		header.Header.Get("Content-Type"),
-		file,
-		size,
+		bytes.NewReader(data),
+		int64(len(data)),
 	)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", userFacingErr(err))
@@ -500,6 +503,21 @@ func eventDTO(e models.TicketEvent) map[string]any {
 	return dto
 }
 
+func readUploadFile(r io.Reader, maxBytes int64) ([]byte, error) {
+	limited := io.LimitReader(r, maxBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("could not read file")
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("file is empty")
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("file too large")
+	}
+	return data, nil
+}
+
 func userFacingErr(err error) string {
 	if err == nil {
 		return "request failed"
@@ -509,9 +527,13 @@ func userFacingErr(err error) string {
 	case strings.Contains(msg, "required"),
 		strings.Contains(msg, "unsupported"),
 		strings.Contains(msg, "invalid"),
+		strings.Contains(msg, "empty"),
+		strings.Contains(msg, "large"),
 		strings.Contains(msg, "closed"),
 		strings.Contains(msg, "pending review"),
-		strings.Contains(msg, "not configured"):
+		strings.Contains(msg, "not configured"),
+		strings.Contains(msg, "upload failed"),
+		strings.Contains(msg, "could not read"):
 		return msg
 	default:
 		return "request failed"
