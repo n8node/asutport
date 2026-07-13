@@ -23,12 +23,13 @@ type Handlers struct {
 }
 
 type AuthHandlers struct {
-	Register http.HandlerFunc
-	Login    http.HandlerFunc
-	Refresh  http.HandlerFunc
-	Logout   http.HandlerFunc
-	Me       http.HandlerFunc
-	Switch   http.HandlerFunc
+	Register           http.HandlerFunc
+	Login              http.HandlerFunc
+	VerifyRegistration http.HandlerFunc
+	Refresh            http.HandlerFunc
+	Logout             http.HandlerFunc
+	Me                 http.HandlerFunc
+	Switch             http.HandlerFunc
 }
 
 type OrgHandlers struct {
@@ -105,6 +106,7 @@ func New(opts Options) http.Handler {
 				r.Post("/login", h.Auth.Login)
 			}
 			r.Post("/refresh", h.Auth.Refresh)
+			r.Get("/verify-registration", h.Auth.VerifyRegistration)
 
 			r.Group(func(r chi.Router) {
 				r.Use(appmw.Authenticate(h.AuthDeps))

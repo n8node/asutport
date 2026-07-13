@@ -47,6 +47,9 @@ func Admin(ctx context.Context, pool *pgxpool.Pool, opts AdminOptions, logger *s
 	if err != nil {
 		return err
 	}
+	if err := users.MarkEmailVerified(ctx, u.ID); err != nil {
+		return err
+	}
 
 	platformOrg, err := orgs.GetBySlug(ctx, "platform")
 	if errors.Is(err, repository.ErrNotFound) {

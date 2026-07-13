@@ -115,7 +115,7 @@ func (r *AdminUserRepo) List(ctx context.Context, p AdminUserListParams) ([]mode
 
 func (r *AdminUserRepo) GetDetail(ctx context.Context, userID uuid.UUID) (*models.AdminUserListRow, []models.AdminUserSession, error) {
 	u, err := scanUser(r.pool.QueryRow(ctx,
-		`SELECT id, email, password_hash, full_name, is_active, created_at, updated_at FROM users WHERE id = $1`, userID))
+		`SELECT id, email, password_hash, full_name, is_active, email_verified_at, created_at, updated_at FROM users WHERE id = $1`, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil, ErrNotFound
 	}
@@ -151,7 +151,7 @@ func (r *AdminUserRepo) GetDetail(ctx context.Context, userID uuid.UUID) (*model
 
 func (r *AdminUserRepo) SetActive(ctx context.Context, userID uuid.UUID, active bool) (*models.User, error) {
 	q := `UPDATE users SET is_active = $2, updated_at = now() WHERE id = $1
-		RETURNING id, email, password_hash, full_name, is_active, created_at, updated_at`
+		RETURNING id, email, password_hash, full_name, is_active, email_verified_at, created_at, updated_at`
 	row := r.pool.QueryRow(ctx, q, userID, active)
 	u, err := scanUser(row)
 	if errors.Is(err, pgx.ErrNoRows) {

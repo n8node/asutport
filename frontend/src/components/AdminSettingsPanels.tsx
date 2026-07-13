@@ -194,7 +194,20 @@ export function AdminSettingsPanels() {
     setError("");
     setMessage("");
     try {
-      await api<{ ok: boolean }>("/admin/settings/s3/test", { method: "POST" });
+      const body: Record<string, unknown> = {
+        endpoint: s3.endpoint,
+        bucket: s3.bucket,
+        region: s3.region,
+        access_key_id: s3.access_key_id,
+        use_path_style: s3.use_path_style,
+      };
+      if (s3Secret.trim()) {
+        body.secret_access_key = s3Secret.trim();
+      }
+      await api<{ ok: boolean }>("/admin/settings/s3/test", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
       setMessage("S3 подключение успешно проверено");
     } catch (err) {
       const message = err instanceof Error ? err.message : "S3 test failed";
@@ -303,7 +316,10 @@ export function AdminSettingsPanels() {
             <input className={monoInputClass} value={s3.endpoint} onChange={(e) => patchS3({ endpoint: e.target.value })} placeholder="https://s3.ru1.storage.beget.cloud" />
           </Field>
           <Field label="Bucket" className="mt-4">
-            <input className={monoInputClass} value={s3.bucket} onChange={(e) => patchS3({ bucket: e.target.value })} />
+            <input className={monoInputClass} value={s3.bucket} onChange={(e) => patchS3({ bucket: e.target.value })} placeholder="5a4cc9f7950f-asutport" />
+            <span className="mt-1 block text-[11px] text-[#8a857d]">
+              Имя бакета — точно как в панели Beget S3 (часто с префиксом, не просто asutport).
+            </span>
           </Field>
           <Field label="Region" className="mt-4">
             <input className={monoInputClass} value={s3.region} onChange={(e) => patchS3({ region: e.target.value })} />

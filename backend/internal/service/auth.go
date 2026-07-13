@@ -49,6 +49,9 @@ func (s *AuthService) IssueForMembership(ctx context.Context, u *models.User, m 
 	if !u.IsActive {
 		return nil, fmt.Errorf("account inactive")
 	}
+	if u.EmailVerifiedAt == nil {
+		return nil, fmt.Errorf("email not verified")
+	}
 	rawRefresh, refreshHash, err := auth.NewRefreshToken()
 	if err != nil {
 		return nil, err
@@ -85,6 +88,9 @@ func (s *AuthService) Refresh(ctx context.Context, refreshToken, userAgent, ip s
 	}
 	if !u.IsActive {
 		return nil, fmt.Errorf("account inactive")
+	}
+	if u.EmailVerifiedAt == nil {
+		return nil, fmt.Errorf("email not verified")
 	}
 	m, err := s.members.GetMembership(ctx, sess.OrgID, sess.UserID)
 	if err != nil {

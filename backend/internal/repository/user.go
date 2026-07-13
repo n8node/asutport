@@ -25,13 +25,13 @@ func (r *UserRepo) Create(ctx context.Context, email, passwordHash, fullName str
 	id := uuid.New()
 	q := `INSERT INTO users (id, email, password_hash, full_name)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id, email, password_hash, full_name, is_active, created_at, updated_at`
+		RETURNING id, email, password_hash, full_name, is_active, email_verified_at, created_at, updated_at`
 	row := r.pool.QueryRow(ctx, q, id, email, passwordHash, fullName)
 	return scanUser(row)
 }
 
 func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*models.User, error) {
-	q := `SELECT id, email, password_hash, full_name, is_active, created_at, updated_at FROM users WHERE email = $1`
+	q := `SELECT id, email, password_hash, full_name, is_active, email_verified_at, created_at, updated_at FROM users WHERE email = $1`
 	row := r.pool.QueryRow(ctx, q, email)
 	u, err := scanUser(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -41,7 +41,7 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*models.User, 
 }
 
 func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.User, error) {
-	q := `SELECT id, email, password_hash, full_name, is_active, created_at, updated_at FROM users WHERE id = $1`
+	q := `SELECT id, email, password_hash, full_name, is_active, email_verified_at, created_at, updated_at FROM users WHERE id = $1`
 	row := r.pool.QueryRow(ctx, q, id)
 	u, err := scanUser(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -52,7 +52,7 @@ func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.User, err
 
 func scanUser(row pgx.Row) (*models.User, error) {
 	var u models.User
-	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &u.IsActive, &u.CreatedAt, &u.UpdatedAt); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &u.IsActive, &u.EmailVerifiedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &u, nil
@@ -68,4 +68,20 @@ func wrapInsert(err error, action string) error {
 		return ErrConflict
 	}
 	return fmt.Errorf("%s: %w", action, err)
+}
+
+func (r *UserRepo) MarkEmailVerified(ctx context.Context, userID uuid.UUID) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE users SET email_verified_at = now(), updated_at = now() WHERE id = $1 AND email_verified_at IS NULL`, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (r *UserRepo) IsEmailVerified(u *models.User) bool {
+	return u != nil && u.EmailVerifiedAt != nil
 }

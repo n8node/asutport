@@ -17,6 +17,7 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/n8node/asutport/internal/config"
+	"github.com/n8node/asutport/internal/email"
 	"github.com/n8node/asutport/internal/handler"
 	"github.com/n8node/asutport/internal/middleware"
 	"github.com/n8node/asutport/internal/repository"
@@ -89,9 +90,11 @@ func main() {
 	adminSettings := repository.NewAdminSettingsRepo(pool)
 	adminUsers := repository.NewAdminUserRepo(pool)
 	adminOrgs := repository.NewAdminOrgRepo(pool)
+	regVerify := repository.NewRegistrationVerificationRepo(pool)
+	emailLoader := email.NewLoader(adminSettings, cfg.JWTSecret)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
 
-	authH := handler.NewAuthHandler(users, orgs, members, sessions, authSvc)
+	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
 	adminOrgH := handler.NewAdminOrgHandler(adminOrgs, orgs)
 	adminUserH := handler.NewAdminUserHandler(adminUsers)
@@ -114,12 +117,13 @@ func main() {
 			AuthDeps: authDeps,
 			LoginRL:  loginRL,
 			Auth: server.AuthHandlers{
-				Register: authH.Register,
-				Login:    authH.Login,
-				Refresh:  authH.Refresh,
-				Logout:   authH.Logout,
-				Me:       authH.Me,
-				Switch:   authH.SwitchOrg,
+				Register:           authH.Register,
+				Login:              authH.Login,
+				VerifyRegistration: authH.VerifyRegistration,
+				Refresh:            authH.Refresh,
+				Logout:             authH.Logout,
+				Me:                 authH.Me,
+				Switch:             authH.SwitchOrg,
 			},
 			Org: server.OrgHandlers{
 				ListMine: orgH.ListMine,

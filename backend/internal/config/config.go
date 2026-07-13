@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/caarlos0/env/v11"
 )
@@ -38,6 +39,17 @@ type Config struct {
 
 	Domain       string `env:"DOMAIN" envDefault:"asutport.ru"`
 	CertbotEmail string `env:"CERTBOT_EMAIL" envDefault:"erman.ai@yandex.ru"`
+}
+
+func (c *Config) PublicAppBaseURL() string {
+	if strings.EqualFold(strings.TrimSpace(c.Environment), "development") {
+		return "http://localhost:3000/app"
+	}
+	domain := strings.TrimSpace(c.Domain)
+	if domain == "" {
+		domain = "asutport.ru"
+	}
+	return "https://" + domain + "/app"
 }
 
 func Load() (*Config, error) {

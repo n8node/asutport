@@ -6,21 +6,18 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/mail"
-	"net/smtp"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/n8node/asutport/internal/config"
+	"github.com/n8node/asutport/internal/email"
 	"github.com/n8node/asutport/internal/repository"
 	s3store "github.com/n8node/asutport/internal/s3"
 )
@@ -67,6 +64,15 @@ type s3SettingsPatch struct {
 	AccessKeyID     string  `json:"access_key_id"`
 	SecretAccessKey *string `json:"secret_access_key"`
 	UsePathStyle    bool    `json:"use_path_style"`
+}
+
+type s3TestRequest struct {
+	Endpoint        string  `json:"endpoint"`
+	Bucket          string  `json:"bucket"`
+	Region          string  `json:"region"`
+	AccessKeyID     string  `json:"access_key_id"`
+	SecretAccessKey *string `json:"secret_access_key"`
+	UsePathStyle    *bool   `json:"use_path_style"`
 }
 
 type smtpSettings struct {
@@ -161,12 +167,51 @@ func (h *AdminSettingsHandler) S3Patch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminSettingsHandler) S3Test(w http.ResponseWriter, r *http.Request) {
-	settings := h.loadS3(r.Context())
-	secret, err := h.openSecret(settings.SecretEnc, h.cfg.S3SecretKey)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, "STORAGE_TEST_FAILED", "saved S3 secret cannot be read")
+	saved := h.loadS3(r.Context())
+	settings := saved
+
+	var req s3TestRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			WriteError(w, http.StatusBadRequest, "INVALID_JSON", "invalid json")
+			return
+		}
+	}
+	if v := strings.TrimRight(strings.TrimSpace(req.Endpoint), "/"); v != "" {
+		settings.Endpoint = v
+	}
+	if v := strings.TrimSpace(req.Bucket); v != "" {
+		settings.Bucket = v
+	}
+	if v := strings.TrimSpace(req.Region); v != "" {
+		settings.Region = v
+	}
+	if v := strings.TrimSpace(req.AccessKeyID); v != "" {
+		settings.AccessKeyID = v
+	}
+	if req.UsePathStyle != nil {
+		settings.UsePathStyle = *req.UsePathStyle
+	}
+
+	secret := ""
+	if req.SecretAccessKey != nil && strings.TrimSpace(*req.SecretAccessKey) != "" {
+		secret = strings.TrimSpace(*req.SecretAccessKey)
+	} else {
+		var err error
+		secret, err = h.openSecret(saved.SecretEnc, h.cfg.S3SecretKey)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, "STORAGE_TEST_FAILED", "saved S3 secret cannot be read")
+			return
+		}
+	}
+	if settings.Endpoint == "" || settings.Bucket == "" || settings.AccessKeyID == "" || secret == "" {
+		WriteError(w, http.StatusBadRequest, "STORAGE_TEST_FAILED", "укажите endpoint, bucket, access key и secret key")
 		return
 	}
+	if settings.Region == "" {
+		settings.Region = "us-east-1"
+	}
+
 	client, err := s3store.NewClient(&config.Config{
 		S3Endpoint:     settings.Endpoint,
 		S3Region:       settings.Region,
@@ -389,77 +434,29 @@ func validateSMTP(s smtpSettings) error {
 }
 
 func sendSMTPTest(ctx context.Context, s smtpSettings, password, to string) error {
-	if !s.Enabled {
-		return fmt.Errorf("включите отправку email в настройках")
-	}
-	if _, err := mail.ParseAddress(to); err != nil {
-		return fmt.Errorf("укажите корректный email для тестовой отправки")
-	}
-	if err := validateSMTP(s); err != nil {
-		return err
-	}
-	addr := net.JoinHostPort(s.Host, strconv.Itoa(s.Port))
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
-	var conn net.Conn
-	var err error
-	if s.Encryption == "ssl" {
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12})
-	} else {
-		conn, err = dialer.DialContext(ctx, "tcp", addr)
-	}
-	if err != nil {
-		return fmt.Errorf("SMTP connect failed: %w", err)
-	}
-	defer conn.Close()
+	return email.Send(ctx, smtpSettingsToEmail(s, password), email.Message{
+		To:      to,
+		Subject: "ASUTPORT — тест SMTP",
+		HTML:    "<p>Это тестовое письмо из админки ASUTPORT. Если вы его получили — SMTP настроен верно.</p>",
+	})
+}
 
-	client, err := smtp.NewClient(conn, s.Host)
-	if err != nil {
-		return fmt.Errorf("SMTP client failed: %w", err)
+func smtpSettingsToEmail(s smtpSettings, password string) email.Settings {
+	return email.Settings{
+		Enabled:          s.Enabled,
+		FromEmail:        s.FromEmail,
+		FromName:         s.FromName,
+		ForceFromEmail:   s.ForceFromEmail,
+		ForceFromName:    s.ForceFromName,
+		ReplyToFromEmail: s.ReplyToFromEmail,
+		Host:             s.Host,
+		Port:             s.Port,
+		Encryption:       s.Encryption,
+		AutoTLS:          s.AutoTLS,
+		Auth:             s.Auth,
+		Username:         s.Username,
+		Password:         password,
 	}
-	defer client.Close()
-
-	if s.Encryption == "tls" || (s.Encryption == "none" && s.AutoTLS) {
-		if ok, _ := client.Extension("STARTTLS"); ok {
-			if err := client.StartTLS(&tls.Config{ServerName: s.Host, MinVersion: tls.VersionTLS12}); err != nil {
-				return fmt.Errorf("SMTP STARTTLS failed: %w", err)
-			}
-		}
-	}
-	if s.Auth {
-		if password == "" {
-			return fmt.Errorf("SMTP password is required")
-		}
-		if err := client.Auth(smtp.PlainAuth("", s.Username, password, s.Host)); err != nil {
-			return fmt.Errorf("SMTP auth failed: %w", err)
-		}
-	}
-	from := s.FromEmail
-	if err := client.Mail(from); err != nil {
-		return fmt.Errorf("SMTP sender rejected: %w", err)
-	}
-	if err := client.Rcpt(to); err != nil {
-		return fmt.Errorf("SMTP recipient rejected: %w", err)
-	}
-	w, err := client.Data()
-	if err != nil {
-		return fmt.Errorf("SMTP DATA failed: %w", err)
-	}
-	body := strings.Join([]string{
-		"From: " + (&mail.Address{Name: s.FromName, Address: from}).String(),
-		"To: " + to,
-		"Subject: ASUTPORT — тест SMTP",
-		"MIME-Version: 1.0",
-		"Content-Type: text/html; charset=UTF-8",
-		"",
-		"<p>Это тестовое письмо из админки ASUTPORT. Если вы его получили — SMTP настроен верно.</p>",
-	}, "\r\n")
-	if _, err := io.WriteString(w, body); err != nil {
-		return fmt.Errorf("SMTP write failed: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("SMTP close failed: %w", err)
-	}
-	return client.Quit()
 }
 
 func (h *AdminSettingsHandler) seal(value string) (string, error) {

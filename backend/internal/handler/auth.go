@@ -3,39 +3,52 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/n8node/asutport/internal/auth"
+	"github.com/n8node/asutport/internal/config"
+	"github.com/n8node/asutport/internal/email"
 	"github.com/n8node/asutport/internal/models"
 	"github.com/n8node/asutport/internal/repository"
 	"github.com/n8node/asutport/internal/service"
 )
 
 type AuthHandler struct {
-	users    *repository.UserRepo
-	orgs     *repository.OrgRepo
-	members  *repository.OrgMemberRepo
-	sessions *repository.SessionRepo
-	authSvc  *service.AuthService
+	cfg          *config.Config
+	users        *repository.UserRepo
+	orgs         *repository.OrgRepo
+	members      *repository.OrgMemberRepo
+	sessions     *repository.SessionRepo
+	regVerify    *repository.RegistrationVerificationRepo
+	emailLoader  *email.Loader
+	authSvc      *service.AuthService
 }
 
 func NewAuthHandler(
+	cfg *config.Config,
 	users *repository.UserRepo,
 	orgs *repository.OrgRepo,
 	members *repository.OrgMemberRepo,
 	sessions *repository.SessionRepo,
+	regVerify *repository.RegistrationVerificationRepo,
+	emailLoader *email.Loader,
 	authSvc *service.AuthService,
 ) *AuthHandler {
 	return &AuthHandler{
-		users:    users,
-		orgs:     orgs,
-		members:  members,
-		sessions: sessions,
-		authSvc:  authSvc,
+		cfg:         cfg,
+		users:       users,
+		orgs:        orgs,
+		members:     members,
+		sessions:    sessions,
+		regVerify:   regVerify,
+		emailLoader: emailLoader,
+		authSvc:     authSvc,
 	}
 }
 
@@ -159,21 +172,40 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not create membership")
 		return
 	}
+	_ = member
 
-	mem := &models.OrgMembership{
-		OrgMember:       *member,
-		OrgName:         org.Name,
-		OrgType:         org.Type,
-		OrgSlug:         org.Slug,
-		OrgReviewStatus: org.ReviewStatus,
-		OrgIsPersonal:   org.IsPersonal,
-	}
-	pair, err := h.authSvc.IssueForMembership(r.Context(), u, mem, r.UserAgent(), ClientIP(r))
+	regID, err := repository.NewRegistrationID()
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not issue token")
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "registration failed")
 		return
 	}
-	writeToken(w, http.StatusCreated, pair)
+	verification, err := h.regVerify.Create(
+		r.Context(),
+		u.ID,
+		org.ID,
+		regID,
+		accountType,
+		time.Now().UTC().Add(48*time.Hour),
+	)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "registration failed")
+		return
+	}
+
+	if err := h.sendRegistrationEmail(r, u.Email, u.FullName, regID); err != nil {
+		_ = h.regVerify.CleanupRegistration(r.Context(), u.ID, org.ID)
+		WriteError(w, http.StatusServiceUnavailable, "EMAIL_UNAVAILABLE", "не удалось отправить письмо подтверждения")
+		return
+	}
+	_ = verification
+
+	WriteJSON(w, http.StatusCreated, map[string]any{
+		"data": map[string]any{
+			"email_verification_required": true,
+			"message":                     "На ваш email отправлено письмо для подтверждения регистрации",
+			"email":                       u.Email,
+		},
+	})
 }
 
 func requiresINN(accountType string) bool {
@@ -207,6 +239,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	if !u.IsActive {
 		WriteError(w, http.StatusForbidden, "FORBIDDEN", "account is inactive")
+		return
+	}
+	if !h.users.IsEmailVerified(u) {
+		WriteError(w, http.StatusForbidden, "EMAIL_NOT_VERIFIED", "подтвердите email по ссылке из письма")
 		return
 	}
 
@@ -252,6 +288,56 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeToken(w, http.StatusOK, pair)
+}
+
+func (h *AuthHandler) VerifyRegistration(w http.ResponseWriter, r *http.Request) {
+	regID := strings.TrimSpace(r.URL.Query().Get("id_reg"))
+	if regID == "" || !strings.HasPrefix(regID, "77") {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid confirmation id")
+		return
+	}
+	verification, err := h.regVerify.GetActiveByRegID(r.Context(), regID)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, "NOT_FOUND", "ссылка недействительна или уже использована")
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not verify registration")
+		return
+	}
+	if err := h.users.MarkEmailVerified(r.Context(), verification.UserID); err != nil {
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not verify registration")
+		return
+	}
+	nextStatus := postVerifyReviewStatus(verification.AccountType)
+	if err := h.orgs.UpdateReviewStatus(r.Context(), verification.OrgID, verification.UserID, nextStatus); err != nil {
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not verify registration")
+		return
+	}
+	if err := h.regVerify.MarkUsed(r.Context(), verification.ID); err != nil {
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not verify registration")
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"status":        "verified",
+			"message":       "Email подтверждён. Теперь можно войти в кабинет.",
+			"review_status": nextStatus,
+		},
+	})
+}
+
+func (h *AuthHandler) sendRegistrationEmail(r *http.Request, toEmail, fullName, regID string) error {
+	settings, err := h.emailLoader.Load(r.Context())
+	if err != nil {
+		return err
+	}
+	confirmURL := fmt.Sprintf("%s/confirm-registration?id_reg=%s", h.cfg.PublicAppBaseURL(), regID)
+	return email.Send(r.Context(), settings, email.Message{
+		To:      toEmail,
+		Subject: "ASUTPORT — подтверждение регистрации",
+		HTML:    email.RegistrationHTML(confirmURL, fullName),
+	})
 }
 
 func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -416,17 +502,26 @@ func registrationOrgType(raw string) (accountType, orgType string, isPersonal bo
 	}
 	switch accountType {
 	case "client_personal":
-		return accountType, "client_org", true, "active", nil
+		return accountType, "client_org", true, "pending_email", nil
 	case "client_org":
-		return accountType, "client_org", false, "active", nil
+		return accountType, "client_org", false, "pending_email", nil
 	case "manufacturer":
-		return accountType, "manufacturer", false, "pending_review", nil
+		return accountType, "manufacturer", false, "pending_email", nil
 	case "vendor":
-		return accountType, "vendor", false, "pending_review", nil
+		return accountType, "vendor", false, "pending_email", nil
 	case "integrator":
-		return accountType, "integrator", false, "pending_review", nil
+		return accountType, "integrator", false, "pending_email", nil
 	default:
 		return "", "", false, "", validationErr("invalid account_type")
+	}
+}
+
+func postVerifyReviewStatus(accountType string) string {
+	switch strings.TrimSpace(accountType) {
+	case "client_personal", "client_org":
+		return "active"
+	default:
+		return "pending_review"
 	}
 }
 

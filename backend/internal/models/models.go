@@ -7,13 +7,14 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID
-	Email        string
-	PasswordHash string
-	FullName     string
-	IsActive     bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID              uuid.UUID
+	Email           string
+	PasswordHash    string
+	FullName        string
+	IsActive        bool
+	EmailVerifiedAt *time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type Organization struct {
@@ -158,4 +159,15 @@ type AdminOrgListRow struct {
 	MemberCount int
 	Owner       *AdminOrgOwner
 	Metrics     AdminOrgMetrics
+}
+
+type RegistrationVerification struct {
+	ID          uuid.UUID
+	UserID      uuid.UUID
+	OrgID       uuid.UUID
+	RegID       string
+	AccountType string
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	CreatedAt   time.Time
 }

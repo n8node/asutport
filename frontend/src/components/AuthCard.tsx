@@ -17,8 +17,12 @@ type TokenResponse = {
     role?: string;
     org_type?: string;
     review_status?: string;
+    email_verification_required?: boolean;
+    message?: string;
+    email?: string;
   };
   error?: {
+    code?: string;
     message?: string;
   };
 };
@@ -128,6 +132,7 @@ export function AuthCard({ mode }: AuthCardProps) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [status, setStatus] = useState<"idle" | "submitting">("idle");
   const [error, setError] = useState("");
+  const [verifyNotice, setVerifyNotice] = useState("");
 
   const score = useMemo(() => passwordScore(password), [password]);
   const requiredPasswordOk = passwordRules
@@ -154,6 +159,7 @@ export function AuthCard({ mode }: AuthCardProps) {
     }
     setStatus("submitting");
     setError("");
+    setVerifyNotice("");
 
     const payload = isRegister
       ? {
@@ -180,8 +186,23 @@ export function AuthCard({ mode }: AuthCardProps) {
       });
       const body = (await response.json()) as TokenResponse;
 
+      if (isRegister && response.ok && body.data?.email_verification_required) {
+        setVerifyNotice(
+          body.data.message ||
+            `На ${body.data.email || email} отправлено письмо. Перейдите по ссылке с id_reg=77… для подтверждения.`,
+        );
+        return;
+      }
+
       if (!response.ok || !body.data?.access_token) {
-        setError(body.error?.message || "Не удалось выполнить вход");
+        if (body.error?.code === "EMAIL_NOT_VERIFIED") {
+          setError(
+            body.error.message ||
+              "Подтвердите email по ссылке из письма (id_reg=77…) перед входом.",
+          );
+        } else {
+          setError(body.error?.message || "Не удалось выполнить вход");
+        }
         return;
       }
 
@@ -438,6 +459,12 @@ export function AuthCard({ mode }: AuthCardProps) {
                     </Link>
                   </span>
                 </label>
+              </div>
+            ) : null}
+
+            {verifyNotice ? (
+              <div className="rounded-lg border border-[#b9e6ce] bg-[#ecfdf3] px-3 py-2 text-sm text-[#3b6d11]">
+                {verifyNotice}
               </div>
             ) : null}
 
