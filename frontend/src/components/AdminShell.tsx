@@ -48,10 +48,10 @@ const navSections: AdminNavSection[] = [
     items: [
       { label: "Заявки", href: "/app/admin#org-requests", icon: InboxIcon, badge: "new" },
       { label: "Пользователи", href: "/app/admin/users", icon: UserIcon },
-      { label: "Клиенты", href: "#clients", icon: UsersIcon },
-      { label: "Производители", href: "#manufacturers", icon: FactoryIcon },
-      { label: "Поставщики", href: "#vendors", icon: BriefcaseIcon },
-      { label: "Интеграторы", href: "#integrators", icon: WrenchIcon },
+      { label: "Клиенты", href: "/app/admin/clients", icon: UsersIcon },
+      { label: "Производители", href: "/app/admin/manufacturers", icon: FactoryIcon },
+      { label: "Поставщики", href: "/app/admin/vendors", icon: BriefcaseIcon },
+      { label: "Интеграторы", href: "/app/admin/integrators", icon: WrenchIcon },
     ],
   },
   {
@@ -103,10 +103,12 @@ export function AdminShell({ children, breadcrumb = "Dashboard" }: AdminShellPro
       return false;
     }
     const path = href.split("#")[0];
-    if (path === "/app/admin") {
-      return pathname === "/admin" || pathname === "/app/admin";
+    const normalized = pathname?.replace(/^\/app/, "") || pathname;
+    const target = path.replace(/^\/app/, "");
+    if (target === "/admin") {
+      return normalized === "/admin";
     }
-    return pathname === path.replace("/app", "") || pathname === path;
+    return normalized === target || pathname === path;
   }
 
   useEffect(() => {

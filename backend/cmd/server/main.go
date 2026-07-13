@@ -88,10 +88,12 @@ func main() {
 	apiKeys := repository.NewAPIKeyRepo(pool)
 	adminSettings := repository.NewAdminSettingsRepo(pool)
 	adminUsers := repository.NewAdminUserRepo(pool)
+	adminOrgs := repository.NewAdminOrgRepo(pool)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
 
 	authH := handler.NewAuthHandler(users, orgs, members, sessions, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
+	adminOrgH := handler.NewAdminOrgHandler(adminOrgs, orgs)
 	adminUserH := handler.NewAdminUserHandler(adminUsers)
 	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
 	adminSettingsH := handler.NewAdminSettingsHandler(cfg, adminSettings)
@@ -120,10 +122,14 @@ func main() {
 				Switch:   authH.SwitchOrg,
 			},
 			Org: server.OrgHandlers{
-				ListMine:          orgH.ListMine,
-				Current:           orgH.Current,
-				AdminList:         orgH.AdminList,
-				AdminUpdateReview: orgH.AdminUpdateReview,
+				ListMine: orgH.ListMine,
+				Current:  orgH.Current,
+			},
+			AdminOrg: server.AdminOrgHandlers{
+				List:         adminOrgH.List,
+				Get:          adminOrgH.Get,
+				Patch:        adminOrgH.Patch,
+				UpdateReview: adminOrgH.UpdateReview,
 			},
 			AdminUser: server.AdminUserHandlers{
 				List:           adminUserH.List,

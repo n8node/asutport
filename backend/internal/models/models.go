@@ -120,3 +120,42 @@ type AdminUserSession struct {
 	Session
 	OrgName string
 }
+
+type AdminOrgOwner struct {
+	UserID   uuid.UUID
+	Email    string
+	FullName string
+	Role     string
+}
+
+type AdminOrgMember struct {
+	UserID    uuid.UUID
+	Email     string
+	FullName  string
+	Role      string
+	IsActive  bool
+	CreatedAt time.Time
+}
+
+type AdminOrgMetrics struct {
+	Installations      *int `json:"installations"`
+	TicketQuotaUsed    *int `json:"ticket_quota_used"`
+	TicketQuotaLimit   *int `json:"ticket_quota_limit"`
+	OpenTickets        *int `json:"open_tickets"`
+	DocSources         *int `json:"doc_sources"`
+	Products           *int `json:"products"`
+	SupportZoneLoaded  bool `json:"support_zone_loaded"`
+	GoldenSetReady     bool `json:"golden_set_ready"`
+	EntitlementLinks   *int `json:"entitlement_links"`
+	FallbackEvents30d  *int `json:"fallback_events_30d"`
+	ApplicationTickets *int `json:"application_tickets"`
+	PlanName           string `json:"plan_name"`
+	MRRRub             *int `json:"mrr_rub"`
+}
+
+type AdminOrgListRow struct {
+	Organization
+	MemberCount int
+	Owner       *AdminOrgOwner
+	Metrics     AdminOrgMetrics
+}

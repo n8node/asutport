@@ -14,6 +14,7 @@ type Handlers struct {
 	Health    http.Handler
 	Auth      AuthHandlers
 	Org       OrgHandlers
+	AdminOrg  AdminOrgHandlers
 	AdminUser AdminUserHandlers
 	APIKey    APIKeyHandlers
 	Admin     AdminHandlers
@@ -31,10 +32,15 @@ type AuthHandlers struct {
 }
 
 type OrgHandlers struct {
-	ListMine          http.HandlerFunc
-	Current           http.HandlerFunc
-	AdminList         http.HandlerFunc
-	AdminUpdateReview http.HandlerFunc
+	ListMine http.HandlerFunc
+	Current  http.HandlerFunc
+}
+
+type AdminOrgHandlers struct {
+	List         http.HandlerFunc
+	Get          http.HandlerFunc
+	Patch        http.HandlerFunc
+	UpdateReview http.HandlerFunc
 }
 
 type AdminUserHandlers struct {
@@ -117,8 +123,10 @@ func New(opts Options) http.Handler {
 
 			r.Group(func(r chi.Router) {
 				r.Use(appmw.RequireSuperAdmin)
-				r.Get("/admin/orgs", h.Org.AdminList)
-				r.Patch("/admin/orgs/{orgID}/review", h.Org.AdminUpdateReview)
+				r.Get("/admin/orgs", h.AdminOrg.List)
+				r.Get("/admin/orgs/{orgID}", h.AdminOrg.Get)
+				r.Patch("/admin/orgs/{orgID}", h.AdminOrg.Patch)
+				r.Patch("/admin/orgs/{orgID}/review", h.AdminOrg.UpdateReview)
 				r.Get("/admin/users", h.AdminUser.List)
 				r.Get("/admin/users/{userID}", h.AdminUser.Get)
 				r.Patch("/admin/users/{userID}", h.AdminUser.PatchActive)
