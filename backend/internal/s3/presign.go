@@ -3,6 +3,7 @@ package s3store
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -43,4 +44,20 @@ func (c *Client) PresignPut(ctx context.Context, key, contentType string, ttl ti
 		return "", fmt.Errorf("presign put: %w", err)
 	}
 	return out.URL, nil
+}
+
+func (c *Client) PutObject(ctx context.Context, key, contentType string, body io.Reader, size int64) error {
+	input := &s3.PutObjectInput{
+		Bucket:        aws.String(c.bucket),
+		Key:           aws.String(key),
+		Body:          body,
+		ContentLength: aws.Int64(size),
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	if _, err := c.s3.PutObject(ctx, input); err != nil {
+		return fmt.Errorf("put object: %w", err)
+	}
+	return nil
 }

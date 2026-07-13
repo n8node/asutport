@@ -12,6 +12,15 @@ type Ticket = {
   client_org_inn?: string;
   client_review_status?: string;
   updated_at?: string;
+  attachments?: TicketAttachment[];
+};
+
+type TicketAttachment = {
+  id: string;
+  filename: string;
+  content_type?: string;
+  size_bytes?: number;
+  created_at?: string;
 };
 
 type TicketEvent = {
@@ -118,49 +127,26 @@ export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadPro
     setBusy(true);
     setError("");
     try {
-      const presignRes = await authFetch(`/api/v1/tickets/${ticketID}/attachments/presign`, {
+      const form = new FormData();
+      form.append("file", file);
+      const response = await authFetch(`/api/v1/tickets/${ticketID}/attachments/upload`, {
         method: "POST",
-        body: JSON.stringify({
-          filename: file.name,
-          content_type: file.type,
-          size_bytes: file.size,
-        }),
+        body: form,
       });
-      const presignBody = (await presignRes.json()) as {
-        data?: { attachment_id?: string; upload_url?: string };
+      const body = (await response.json()) as {
+        data?: { event?: TicketEvent; ticket?: Ticket; attachments?: TicketAttachment[] };
         error?: { message?: string };
       };
-      if (!presignRes.ok || !presignBody.data?.upload_url || !presignBody.data.attachment_id) {
-        setError(presignBody.error?.message || "Не удалось подготовить загрузку");
+      if (!response.ok) {
+        setError(body.error?.message || "Не удалось прикрепить файл");
         return;
       }
-      const putRes = await fetch(presignBody.data.upload_url, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) {
-        setError("Не удалось загрузить файл в хранилище");
-        return;
+      if (body.data?.ticket) {
+        setTicket(body.data.ticket);
+        onTicketUpdate?.(body.data.ticket);
       }
-      const completeRes = await authFetch(
-        `/api/v1/tickets/${ticketID}/attachments/${presignBody.data.attachment_id}/complete`,
-        { method: "POST", body: "{}" },
-      );
-      const completeBody = (await completeRes.json()) as {
-        data?: { event?: TicketEvent; ticket?: Ticket };
-        error?: { message?: string };
-      };
-      if (!completeRes.ok) {
-        setError(completeBody.error?.message || "Не удалось прикрепить файл");
-        return;
-      }
-      if (completeBody.data?.ticket) {
-        setTicket(completeBody.data.ticket);
-        onTicketUpdate?.(completeBody.data.ticket);
-      }
-      if (completeBody.data?.event) {
-        setEvents((prev) => [...prev, completeBody.data!.event!]);
+      if (body.data?.event) {
+        setEvents((prev) => [...prev, body.data!.event!]);
       } else {
         await load();
       }
@@ -231,7 +217,24 @@ export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadPro
           {ticket?.client_review_status ? (
             <span>Проверка org: {ticket.client_review_status}</span>
           ) : null}
+          {ticket?.attachments && ticket.attachments.length > 0 ? (
+            <span>Вложений: {ticket.attachments.length}</span>
+          ) : null}
         </div>
+        {ticket?.attachments && ticket.attachments.length > 0 ? (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {ticket.attachments.map((att) => (
+              <button
+                key={att.id}
+                type="button"
+                className="rounded border border-[#d7d2ca] px-2.5 py-1 text-[12px] text-[#185fa5] hover:bg-[#ebe9e4]"
+                onClick={() => void openAttachment(att.id)}
+              >
+                📎 {att.filename}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </header>
 
       <section className="rounded-lg border border-[#dedbd3] bg-white">

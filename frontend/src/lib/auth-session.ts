@@ -43,7 +43,7 @@ export async function authFetch(input: string, init: RequestInit = {}, retry = t
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  if (init.body && !headers.has("Content-Type")) {
+  if (init.body && !headers.has("Content-Type") && !(init.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
   const response = await fetch(input, { ...init, headers });

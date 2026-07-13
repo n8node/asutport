@@ -40,7 +40,68 @@ func (h *TicketHandler) GetOnboarding(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not load ticket")
 		return
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"data": ticketDTO(ticket)})
+	attachments, _ := h.tickets.ListAttachments(r.Context(), ticket.ID)
+	WriteJSON(w, http.StatusOK, map[string]any{"data": ticketDTO(ticket, attachments)})
+}
+
+func (h *TicketHandler) UploadAttachment(w http.ResponseWriter, r *http.Request) {
+	p, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing authentication")
+		return
+	}
+	ticketID, err := uuid.Parse(chi.URLParam(r, "ticketID"))
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid ticket id")
+		return
+	}
+	ticket, err := h.loadAuthorizedTicket(w, r, ticketID, p)
+	if err != nil || ticket == nil {
+		return
+	}
+	if err := h.ensureOnboardingAccess(w, r, ticket, p); err != nil {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, service.MaxAttachmentBytes()+1<<20)
+	if err := r.ParseMultipartForm(service.MaxAttachmentBytes() + 1<<20); err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "file too large or invalid form")
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "file is required")
+		return
+	}
+	defer file.Close()
+	size := header.Size
+	if size <= 0 {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid file size")
+		return
+	}
+	event, err := h.tickets.UploadAttachment(
+		r.Context(),
+		ticket,
+		p.UserID,
+		p.OrgID,
+		p.IsSuperAdmin(),
+		header.Filename,
+		header.Header.Get("Content-Type"),
+		file,
+		size,
+	)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", userFacingErr(err))
+		return
+	}
+	updated, _ := h.tickets.GetByID(r.Context(), ticket.ID)
+	attachments, _ := h.tickets.ListAttachments(r.Context(), ticket.ID)
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"event":       eventDTO(*event),
+			"ticket":      ticketDTO(updated, attachments),
+			"attachments": attachmentDTOs(attachments),
+		},
+	})
 }
 
 func (h *TicketHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +119,8 @@ func (h *TicketHandler) Get(w http.ResponseWriter, r *http.Request) {
 	if err != nil || ticket == nil {
 		return
 	}
-	WriteJSON(w, http.StatusOK, map[string]any{"data": ticketDTO(ticket)})
+	attachments, _ := h.tickets.ListAttachments(r.Context(), ticket.ID)
+	WriteJSON(w, http.StatusOK, map[string]any{"data": ticketDTO(ticket, attachments)})
 }
 
 func (h *TicketHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
@@ -121,10 +183,11 @@ func (h *TicketHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated, _ := h.tickets.GetByID(r.Context(), ticket.ID)
+	attachments, _ := h.tickets.ListAttachments(r.Context(), ticket.ID)
 	WriteJSON(w, http.StatusCreated, map[string]any{
 		"data": map[string]any{
 			"event":  eventDTO(*event),
-			"ticket": ticketDTO(updated),
+			"ticket": ticketDTO(updated, attachments),
 		},
 	})
 }
@@ -209,10 +272,11 @@ func (h *TicketHandler) CompleteAttachment(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	updated, _ := h.tickets.GetByID(r.Context(), ticket.ID)
+	attachments, _ := h.tickets.ListAttachments(r.Context(), ticket.ID)
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"event":  eventDTO(*event),
-			"ticket": ticketDTO(updated),
+			"ticket": ticketDTO(updated, attachments),
 		},
 	})
 }
@@ -266,7 +330,7 @@ func (h *TicketHandler) ListOnboardingAdmin(w http.ResponseWriter, r *http.Reque
 	}
 	items := make([]map[string]any, 0, len(list))
 	for i := range list {
-		items = append(items, ticketDTO(&list[i]))
+		items = append(items, ticketDTO(&list[i], nil))
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"data": items,
@@ -324,7 +388,8 @@ func (h *TicketHandler) reviewOrg(w http.ResponseWriter, r *http.Request, approv
 		return
 	}
 	updated, _ := h.tickets.GetByID(r.Context(), ticket.ID)
-	WriteJSON(w, http.StatusOK, map[string]any{"data": ticketDTO(updated)})
+	attachments, _ := h.tickets.ListAttachments(r.Context(), ticket.ID)
+	WriteJSON(w, http.StatusOK, map[string]any{"data": ticketDTO(updated, attachments)})
 }
 
 func (h *TicketHandler) loadAuthorizedTicket(w http.ResponseWriter, r *http.Request, ticketID uuid.UUID, p *auth.Principal) (*models.Ticket, error) {
@@ -364,7 +429,7 @@ func (h *TicketHandler) ensureOnboardingAccess(w http.ResponseWriter, r *http.Re
 	return nil
 }
 
-func ticketDTO(t *models.Ticket) map[string]any {
+func ticketDTO(t *models.Ticket, attachments []models.TicketAttachment) map[string]any {
 	if t == nil {
 		return nil
 	}
@@ -381,6 +446,7 @@ func ticketDTO(t *models.Ticket) map[string]any {
 		"client_review_status": t.ClientReviewStatus,
 		"created_at":           t.CreatedAt,
 		"updated_at":           t.UpdatedAt,
+		"attachments":          attachmentDTOs(attachments),
 	}
 	if t.InstallationID != nil {
 		dto["installation_id"] = t.InstallationID.String()
@@ -392,6 +458,20 @@ func ticketDTO(t *models.Ticket) map[string]any {
 		dto["created_by_user_id"] = t.CreatedByUserID.String()
 	}
 	return dto
+}
+
+func attachmentDTOs(list []models.TicketAttachment) []map[string]any {
+	out := make([]map[string]any, 0, len(list))
+	for _, a := range list {
+		out = append(out, map[string]any{
+			"id":          a.ID.String(),
+			"filename":    a.Filename,
+			"content_type": a.ContentType,
+			"size_bytes":  a.SizeBytes,
+			"created_at":  a.CreatedAt,
+		})
+	}
+	return out
 }
 
 func eventDTO(e models.TicketEvent) map[string]any {

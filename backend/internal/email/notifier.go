@@ -70,9 +70,13 @@ func (n *Notifier) NotifyTicketActivity(ctx context.Context, data TicketActivity
 		if !settings.AdminNotifyEnabled || to == "" {
 			return nil
 		}
+		subject := SubjectTicketActivity
+		if strings.TrimSpace(data.AttachmentFilename) != "" {
+			subject = SubjectTicketAttachment
+		}
 		return Send(ctx, settings, Message{
 			To:      to,
-			Subject: SubjectTicketActivity,
+			Subject: subject,
 			Text:    TicketActivityText(data),
 			HTML:    TicketActivityHTML(data),
 		})

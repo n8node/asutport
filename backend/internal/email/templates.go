@@ -11,6 +11,7 @@ const (
 	SubjectAdminUserRegistered   = "ASUTPORT — новая регистрация пользователя"
 	SubjectOnboardingTicket        = "ASUTPORT — тикет проверки организации"
 	SubjectTicketActivity          = "ASUTPORT — обновление в тикете"
+	SubjectTicketAttachment        = "ASUTPORT — новое вложение в тикете"
 	SubjectOrgReviewApproved       = "ASUTPORT — организация активирована"
 	SubjectOrgReviewRejected       = "ASUTPORT — заявка организации отклонена"
 	SubjectSMTPTest                = "ASUTPORT — тест SMTP"
@@ -233,13 +234,15 @@ type OnboardingTicketMail struct {
 }
 
 type TicketActivityMail struct {
-	TicketID      string
-	OrgName       string
-	Subject       string
-	Preview       string
-	IsAdminTarget bool
-	ClientURL     string
-	AdminURL      string
+	TicketID           string
+	OrgName            string
+	Subject            string
+	Preview            string
+	IsAdminTarget      bool
+	ClientURL          string
+	AdminURL           string
+	AttachmentFilename string
+	AttachmentURL      string
 }
 
 type OrgReviewResultMail struct {
@@ -305,11 +308,21 @@ func TicketActivityHTML(data TicketActivityMail) string {
 		html.EscapeString(data.OrgName),
 		html.EscapeString(data.Preview),
 	)
+	if fn := strings.TrimSpace(data.AttachmentFilename); fn != "" {
+		body += fmt.Sprintf(`<p style="margin:0 0 12px;font-size:13px;color:#4b5563;">Файл: <strong>%s</strong></p>`, html.EscapeString(fn))
+	}
 	url := data.ClientURL
 	if data.IsAdminTarget {
 		url = data.AdminURL
 	}
 	body += fmt.Sprintf(`<table role="presentation" cellspacing="0" cellpadding="0"><tr><td style="border-radius:8px;background:#0d9488;"><a href="%s" style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">Открыть тикет</a></td></tr></table>`, html.EscapeString(url))
+	if data.IsAdminTarget && strings.TrimSpace(data.AttachmentURL) != "" {
+		body += fmt.Sprintf(`
+<table role="presentation" cellspacing="0" cellpadding="0" style="margin-top:16px;"><tr><td style="border-radius:8px;background:#1b2025;"><a href="%s" style="display:inline-block;padding:12px 22px;font-size:14px;font-weight:600;color:#3fc8b7;text-decoration:none;">Скачать вложение</a></td></tr></table>
+<p style="margin:12px 0 0;font-size:12px;line-height:1.5;color:#9aa5b1;">Ссылка на файл действует 1 час.</p>`,
+			html.EscapeString(data.AttachmentURL),
+		)
+	}
 	return layout("Обновление тикета", "Уведомление", body)
 }
 
@@ -318,7 +331,14 @@ func TicketActivityText(data TicketActivityMail) string {
 	if data.IsAdminTarget {
 		url = data.AdminURL
 	}
-	return fmt.Sprintf("%s\n%s\n%s", data.Subject, data.Preview, url)
+	text := fmt.Sprintf("%s\n%s\n%s", data.Subject, data.Preview, url)
+	if fn := strings.TrimSpace(data.AttachmentFilename); fn != "" {
+		text += "\nФайл: " + fn
+	}
+	if data.IsAdminTarget && strings.TrimSpace(data.AttachmentURL) != "" {
+		text += "\nСкачать: " + data.AttachmentURL
+	}
+	return text
 }
 
 func OrgReviewResultHTML(data OrgReviewResultMail) string {

@@ -184,7 +184,10 @@ func (r *TicketRepo) ListEvents(ctx context.Context, ticketID uuid.UUID, limit i
 }
 
 func (r *TicketRepo) CreateAttachment(ctx context.Context, a models.TicketAttachment) (*models.TicketAttachment, error) {
-	id := uuid.New()
+	id := a.ID
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
 	q := `INSERT INTO ticket_attachments (
 			id, ticket_id, s3_key, filename, content_type, size_bytes,
 			uploaded_by_user_id, uploaded_by_org_id, status
@@ -222,6 +225,28 @@ func (r *TicketRepo) CompleteAttachment(ctx context.Context, id, eventID uuid.UU
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *TicketRepo) ListAttachments(ctx context.Context, ticketID uuid.UUID) ([]models.TicketAttachment, error) {
+	q := `SELECT id, ticket_id, event_id, s3_key, filename, content_type, size_bytes,
+			uploaded_by_user_id, uploaded_by_org_id, status, created_at
+		FROM ticket_attachments
+		WHERE ticket_id = $1 AND status = 'completed'
+		ORDER BY created_at ASC`
+	rows, err := r.pool.Query(ctx, q, ticketID)
+	if err != nil {
+		return nil, fmt.Errorf("list attachments: %w", err)
+	}
+	defer rows.Close()
+	var out []models.TicketAttachment
+	for rows.Next() {
+		a, err := scanAttachment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *a)
+	}
+	return out, rows.Err()
 }
 
 func scanTicket(row pgx.Row) (*models.Ticket, error) {

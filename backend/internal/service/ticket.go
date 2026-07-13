@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,10 @@ import (
 )
 
 const maxAttachmentBytes = 20 << 20 // 20 MiB
+
+func MaxAttachmentBytes() int64 {
+	return maxAttachmentBytes
+}
 
 var allowedAttachmentTypes = map[string]bool{
 	"application/pdf": true,
@@ -123,6 +128,10 @@ func (s *TicketService) ListEvents(ctx context.Context, ticketID uuid.UUID) ([]m
 	return s.tickets.ListEvents(ctx, ticketID, 200)
 }
 
+func (s *TicketService) ListAttachments(ctx context.Context, ticketID uuid.UUID) ([]models.TicketAttachment, error) {
+	return s.tickets.ListAttachments(ctx, ticketID)
+}
+
 func (s *TicketService) PostMessage(
 	ctx context.Context,
 	ticket *models.Ticket,
@@ -189,9 +198,9 @@ func (s *TicketService) PresignAttachment(
 	if filename == "" {
 		return nil, fmt.Errorf("filename is required")
 	}
-	ct := strings.ToLower(strings.TrimSpace(in.ContentType))
-	if !allowedAttachmentTypes[ct] {
-		return nil, fmt.Errorf("unsupported file type")
+	ct, err := normalizeAttachmentContentType(filename, in.ContentType)
+	if err != nil {
+		return nil, err
 	}
 	if in.SizeBytes <= 0 || in.SizeBytes > maxAttachmentBytes {
 		return nil, fmt.Errorf("invalid file size")
@@ -222,6 +231,54 @@ func (s *TicketService) PresignAttachment(
 	}, nil
 }
 
+func (s *TicketService) UploadAttachment(
+	ctx context.Context,
+	ticket *models.Ticket,
+	userID, orgID uuid.UUID,
+	isSuperAdmin bool,
+	filename, contentType string,
+	body io.Reader,
+	sizeBytes int64,
+) (*models.TicketEvent, error) {
+	if s.s3 == nil {
+		return nil, fmt.Errorf("object storage is not configured")
+	}
+	if ticket.Status == "closed" {
+		return nil, fmt.Errorf("ticket is closed")
+	}
+	filename = sanitizeFilename(filename)
+	if filename == "" {
+		return nil, fmt.Errorf("filename is required")
+	}
+	ct, err := normalizeAttachmentContentType(filename, contentType)
+	if err != nil {
+		return nil, err
+	}
+	if sizeBytes <= 0 || sizeBytes > maxAttachmentBytes {
+		return nil, fmt.Errorf("invalid file size")
+	}
+	attID := uuid.New()
+	key := s3store.TicketAttachmentKey(ticket.ID.String(), attID.String(), filename)
+	att, err := s.tickets.CreateAttachment(ctx, models.TicketAttachment{
+		ID:               attID,
+		TicketID:         ticket.ID,
+		S3Key:            key,
+		Filename:         filename,
+		ContentType:      ct,
+		SizeBytes:        sizeBytes,
+		UploadedByUserID: userID,
+		UploadedByOrgID:  orgID,
+		Status:           "pending",
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.s3.PutObject(ctx, key, ct, body, sizeBytes); err != nil {
+		return nil, fmt.Errorf("upload failed")
+	}
+	return s.completeAttachmentRecord(ctx, ticket, att, userID, orgID, isSuperAdmin)
+}
+
 func (s *TicketService) CompleteAttachment(
 	ctx context.Context,
 	ticket *models.Ticket,
@@ -241,6 +298,16 @@ func (s *TicketService) CompleteAttachment(
 	if !isSuperAdmin && att.UploadedByOrgID != orgID {
 		return nil, repository.ErrNotFound
 	}
+	return s.completeAttachmentRecord(ctx, ticket, att, userID, orgID, isSuperAdmin)
+}
+
+func (s *TicketService) completeAttachmentRecord(
+	ctx context.Context,
+	ticket *models.Ticket,
+	att *models.TicketAttachment,
+	userID, orgID uuid.UUID,
+	isSuperAdmin bool,
+) (*models.TicketEvent, error) {
 	var actorOrgPtr *uuid.UUID
 	if !isSuperAdmin {
 		actorOrgPtr = &orgID
@@ -261,7 +328,7 @@ func (s *TicketService) CompleteAttachment(
 	if err := s.tickets.UpdateStatus(ctx, ticket.ID, status, ballOwner); err != nil {
 		return nil, err
 	}
-	_ = s.notifyTicketAttachment(ctx, ticket, att.Filename)
+	_ = s.notifyTicketAttachment(ctx, ticket, att)
 	return event, nil
 }
 
@@ -348,6 +415,24 @@ func sanitizeFilename(name string) string {
 	return base
 }
 
+func normalizeAttachmentContentType(filename, contentType string) (string, error) {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if ct == "" || ct == "application/octet-stream" {
+		switch strings.ToLower(filepath.Ext(filename)) {
+		case ".pdf":
+			ct = "application/pdf"
+		case ".png":
+			ct = "image/png"
+		case ".jpg", ".jpeg":
+			ct = "image/jpeg"
+		}
+	}
+	if !allowedAttachmentTypes[ct] {
+		return "", fmt.Errorf("unsupported file type")
+	}
+	return ct, nil
+}
+
 func (s *TicketService) notifyOnboardingCreated(ctx context.Context, org *models.Organization, ticket *models.Ticket, userID uuid.UUID) error {
 	if s.notify == nil {
 		return nil
@@ -385,19 +470,26 @@ func (s *TicketService) notifyTicketMessage(ctx context.Context, ticket *models.
 	}, clientEmail)
 }
 
-func (s *TicketService) notifyTicketAttachment(ctx context.Context, ticket *models.Ticket, filename string) error {
-	if s.notify == nil {
+func (s *TicketService) notifyTicketAttachment(ctx context.Context, ticket *models.Ticket, att *models.TicketAttachment) error {
+	if s.notify == nil || att == nil {
 		return nil
 	}
-	return s.notify.NotifyTicketActivity(ctx, email.TicketActivityMail{
-		TicketID:      ticket.ID.String(),
-		OrgName:       ticket.ClientOrgName,
-		Subject:       ticket.Subject,
-		Preview:       "Загружен файл: " + path.Base(filename),
-		IsAdminTarget: true,
-		ClientURL:     s.cfg.PublicAppBaseURL() + "/dashboard/onboarding",
-		AdminURL:      s.cfg.PublicAppBaseURL() + "/admin/tickets/" + ticket.ID.String(),
-	}, "")
+	mail := email.TicketActivityMail{
+		TicketID:           ticket.ID.String(),
+		OrgName:            ticket.ClientOrgName,
+		Subject:            ticket.Subject,
+		Preview:            "Загружен файл: " + path.Base(att.Filename),
+		IsAdminTarget:      true,
+		ClientURL:          s.cfg.PublicAppBaseURL() + "/dashboard/onboarding",
+		AdminURL:           s.cfg.PublicAppBaseURL() + "/admin/tickets/" + ticket.ID.String(),
+		AttachmentFilename: att.Filename,
+	}
+	if s.s3 != nil {
+		if url, err := s.s3.PresignGet(ctx, att.S3Key, 0); err == nil {
+			mail.AttachmentURL = url
+		}
+	}
+	return s.notify.NotifyTicketActivity(ctx, mail, "")
 }
 
 func (s *TicketService) notifyOrgReviewResult(ctx context.Context, ticket *models.Ticket, approved bool, rationale string) error {

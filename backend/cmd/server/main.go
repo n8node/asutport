@@ -139,6 +139,7 @@ func main() {
 				ListEvents:          ticketH.ListEvents,
 				PostMessage:         ticketH.PostMessage,
 				PresignAttachment:   ticketH.PresignAttachment,
+				UploadAttachment:    ticketH.UploadAttachment,
 				CompleteAttachment:  ticketH.CompleteAttachment,
 				AttachmentURL:       ticketH.AttachmentURL,
 				ListOnboardingAdmin: ticketH.ListOnboardingAdmin,

@@ -44,6 +44,7 @@ type TicketHandlers struct {
 	ListEvents         http.HandlerFunc
 	PostMessage        http.HandlerFunc
 	PresignAttachment  http.HandlerFunc
+	UploadAttachment   http.HandlerFunc
 	CompleteAttachment http.HandlerFunc
 	AttachmentURL      http.HandlerFunc
 	ListOnboardingAdmin http.HandlerFunc
@@ -144,6 +145,7 @@ func New(opts Options) http.Handler {
 				r.Get("/events", h.Ticket.ListEvents)
 				r.Post("/messages", h.Ticket.PostMessage)
 				r.Post("/attachments/presign", h.Ticket.PresignAttachment)
+				r.Post("/attachments/upload", h.Ticket.UploadAttachment)
 				r.Post("/attachments/{attachmentID}/complete", h.Ticket.CompleteAttachment)
 				r.Get("/attachments/{attachmentID}/url", h.Ticket.AttachmentURL)
 			})
