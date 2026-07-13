@@ -27,6 +27,7 @@ type AuthHandler struct {
 	sessions     *repository.SessionRepo
 	regVerify    *repository.RegistrationVerificationRepo
 	emailLoader  *email.Loader
+	emailNotify  *email.Notifier
 	authSvc      *service.AuthService
 }
 
@@ -38,6 +39,7 @@ func NewAuthHandler(
 	sessions *repository.SessionRepo,
 	regVerify *repository.RegistrationVerificationRepo,
 	emailLoader *email.Loader,
+	emailNotify *email.Notifier,
 	authSvc *service.AuthService,
 ) *AuthHandler {
 	return &AuthHandler{
@@ -48,6 +50,7 @@ func NewAuthHandler(
 		sessions:    sessions,
 		regVerify:   regVerify,
 		emailLoader: emailLoader,
+		emailNotify: emailNotify,
 		authSvc:     authSvc,
 	}
 }
@@ -197,6 +200,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusServiceUnavailable, "EMAIL_UNAVAILABLE", "не удалось отправить письмо подтверждения")
 		return
 	}
+	_ = h.sendAdminRegistrationNotify(r, u.Email, u.FullName, accountType, org.Name, org.Type, regID)
 	_ = verification
 
 	WriteJSON(w, http.StatusCreated, map[string]any{
@@ -333,10 +337,34 @@ func (h *AuthHandler) sendRegistrationEmail(r *http.Request, toEmail, fullName, 
 		return err
 	}
 	confirmURL := fmt.Sprintf("%s/confirm-registration?id_reg=%s", h.cfg.PublicAppBaseURL(), regID)
+	mailData := email.RegistrationMail{
+		FullName:   fullName,
+		ConfirmURL: confirmURL,
+	}
 	return email.Send(r.Context(), settings, email.Message{
 		To:      toEmail,
-		Subject: "ASUTPORT — подтверждение регистрации",
-		HTML:    email.RegistrationHTML(confirmURL, fullName),
+		Subject: email.SubjectRegistrationConfirm,
+		Text:    email.RegistrationText(mailData),
+		HTML:    email.RegistrationHTML(mailData),
+	})
+}
+
+func (h *AuthHandler) sendAdminRegistrationNotify(
+	r *http.Request,
+	userEmail, fullName, accountType, orgName, orgType, regID string,
+) error {
+	if h.emailNotify == nil {
+		return nil
+	}
+	return h.emailNotify.NotifyUserRegistered(r.Context(), email.AdminRegistrationMail{
+		UserEmail:     userEmail,
+		FullName:      fullName,
+		AccountType:   accountType,
+		OrgName:       orgName,
+		OrgType:       orgType,
+		RegID:         regID,
+		RegisteredAt:  time.Now().UTC().Format("02.01.2006 15:04 UTC"),
+		AdminPanelURL: h.emailNotify.AdminPanelURL(h.cfg.PublicAppBaseURL()),
 	})
 }
 

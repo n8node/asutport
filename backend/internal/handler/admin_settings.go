@@ -76,19 +76,21 @@ type s3TestRequest struct {
 }
 
 type smtpSettings struct {
-	Enabled          bool   `json:"enabled"`
-	FromEmail        string `json:"from_email"`
-	FromName         string `json:"from_name"`
-	ForceFromEmail   bool   `json:"force_from_email"`
-	ForceFromName    bool   `json:"force_from_name"`
-	ReplyToFromEmail bool   `json:"reply_to_from_email"`
-	Host             string `json:"host"`
-	Port             int    `json:"port"`
-	Encryption       string `json:"encryption"`
-	AutoTLS          bool   `json:"auto_tls"`
-	Auth             bool   `json:"auth"`
-	Username         string `json:"username"`
-	PasswordEnc      string `json:"password_enc"`
+	Enabled            bool   `json:"enabled"`
+	FromEmail          string `json:"from_email"`
+	FromName           string `json:"from_name"`
+	ForceFromEmail     bool   `json:"force_from_email"`
+	ForceFromName      bool   `json:"force_from_name"`
+	ReplyToFromEmail   bool   `json:"reply_to_from_email"`
+	AdminNotifyEmail   string `json:"admin_notify_email"`
+	AdminNotifyEnabled bool   `json:"admin_notify_enabled"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	Encryption         string `json:"encryption"`
+	AutoTLS            bool   `json:"auto_tls"`
+	Auth               bool   `json:"auth"`
+	Username           string `json:"username"`
+	PasswordEnc        string `json:"password_enc"`
 }
 
 type smtpSettingsDTO struct {
@@ -100,18 +102,20 @@ type smtpSettingsDTO struct {
 }
 
 type smtpPublicSettings struct {
-	Enabled          bool   `json:"enabled"`
-	FromEmail        string `json:"from_email"`
-	FromName         string `json:"from_name"`
-	ForceFromEmail   bool   `json:"force_from_email"`
-	ForceFromName    bool   `json:"force_from_name"`
-	ReplyToFromEmail bool   `json:"reply_to_from_email"`
-	Host             string `json:"host"`
-	Port             int    `json:"port"`
-	Encryption       string `json:"encryption"`
-	AutoTLS          bool   `json:"auto_tls"`
-	Auth             bool   `json:"auth"`
-	Username         string `json:"username"`
+	Enabled            bool   `json:"enabled"`
+	FromEmail          string `json:"from_email"`
+	FromName           string `json:"from_name"`
+	ForceFromEmail     bool   `json:"force_from_email"`
+	ForceFromName      bool   `json:"force_from_name"`
+	ReplyToFromEmail   bool   `json:"reply_to_from_email"`
+	AdminNotifyEmail   string `json:"admin_notify_email"`
+	AdminNotifyEnabled bool   `json:"admin_notify_enabled"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	Encryption         string `json:"encryption"`
+	AutoTLS            bool   `json:"auto_tls"`
+	Auth               bool   `json:"auth"`
+	Username           string `json:"username"`
 }
 
 type smtpUpdateRequest struct {
@@ -273,19 +277,21 @@ func (h *AdminSettingsHandler) SMTPPatch(w http.ResponseWriter, r *http.Request)
 	}
 	current := h.loadSMTP(r.Context())
 	next := smtpSettings{
-		Enabled:          req.Settings.Enabled,
-		FromEmail:        strings.TrimSpace(req.Settings.FromEmail),
-		FromName:         strings.TrimSpace(req.Settings.FromName),
-		ForceFromEmail:   req.Settings.ForceFromEmail,
-		ForceFromName:    req.Settings.ForceFromName,
-		ReplyToFromEmail: req.Settings.ReplyToFromEmail,
-		Host:             strings.TrimSpace(req.Settings.Host),
-		Port:             req.Settings.Port,
-		Encryption:       strings.ToLower(strings.TrimSpace(req.Settings.Encryption)),
-		AutoTLS:          req.Settings.AutoTLS,
-		Auth:             req.Settings.Auth,
-		Username:         strings.TrimSpace(req.Settings.Username),
-		PasswordEnc:      current.PasswordEnc,
+		Enabled:            req.Settings.Enabled,
+		FromEmail:          strings.TrimSpace(req.Settings.FromEmail),
+		FromName:           strings.TrimSpace(req.Settings.FromName),
+		ForceFromEmail:     req.Settings.ForceFromEmail,
+		ForceFromName:      req.Settings.ForceFromName,
+		ReplyToFromEmail:   req.Settings.ReplyToFromEmail,
+		AdminNotifyEmail:   strings.TrimSpace(strings.ToLower(req.Settings.AdminNotifyEmail)),
+		AdminNotifyEnabled: req.Settings.AdminNotifyEnabled,
+		Host:               strings.TrimSpace(req.Settings.Host),
+		Port:               req.Settings.Port,
+		Encryption:         strings.ToLower(strings.TrimSpace(req.Settings.Encryption)),
+		AutoTLS:            req.Settings.AutoTLS,
+		Auth:               req.Settings.Auth,
+		Username:           strings.TrimSpace(req.Settings.Username),
+		PasswordEnc:        current.PasswordEnc,
 	}
 	if next.Port == 0 {
 		next.Port = 465
@@ -366,15 +372,16 @@ func (h *AdminSettingsHandler) s3DTO(s s3Settings) s3SettingsDTO {
 
 func (h *AdminSettingsHandler) loadSMTP(ctx context.Context) smtpSettings {
 	def := smtpSettings{
-		Enabled:        false,
-		FromName:       "ASUTPORT",
-		ForceFromEmail: true,
-		ForceFromName:  true,
-		Host:           "",
-		Port:           465,
-		Encryption:     "ssl",
-		AutoTLS:        true,
-		Auth:           true,
+		Enabled:            false,
+		FromName:           "ASUTPORT",
+		ForceFromEmail:     true,
+		ForceFromName:      true,
+		Host:               "",
+		Port:               465,
+		Encryption:         "ssl",
+		AutoTLS:            true,
+		Auth:               true,
+		AdminNotifyEnabled: true,
 	}
 	var saved smtpSettings
 	if err := h.repo.Get(ctx, adminSettingSMTPKey, &saved); err != nil {
@@ -390,18 +397,20 @@ func (h *AdminSettingsHandler) smtpDTO(s smtpSettings) smtpSettingsDTO {
 	}
 	return smtpSettingsDTO{
 		Settings: smtpPublicSettings{
-			Enabled:          s.Enabled,
-			FromEmail:        s.FromEmail,
-			FromName:         s.FromName,
-			ForceFromEmail:   s.ForceFromEmail,
-			ForceFromName:    s.ForceFromName,
-			ReplyToFromEmail: s.ReplyToFromEmail,
-			Host:             s.Host,
-			Port:             s.Port,
-			Encryption:       s.Encryption,
-			AutoTLS:          s.AutoTLS,
-			Auth:             s.Auth,
-			Username:         s.Username,
+			Enabled:            s.Enabled,
+			FromEmail:          s.FromEmail,
+			FromName:           s.FromName,
+			ForceFromEmail:     s.ForceFromEmail,
+			ForceFromName:      s.ForceFromName,
+			ReplyToFromEmail:   s.ReplyToFromEmail,
+			AdminNotifyEmail:   s.AdminNotifyEmail,
+			AdminNotifyEnabled: s.AdminNotifyEnabled,
+			Host:               s.Host,
+			Port:               s.Port,
+			Encryption:         s.Encryption,
+			AutoTLS:            s.AutoTLS,
+			Auth:               s.Auth,
+			Username:           s.Username,
 		},
 		PasswordSet:      s.PasswordEnc != "",
 		PasswordHint:     maskSecret(password),
@@ -430,32 +439,42 @@ func validateSMTP(s smtpSettings) error {
 			return fmt.Errorf("SMTP username is required")
 		}
 	}
+	if s.AdminNotifyEnabled {
+		if to := strings.TrimSpace(s.AdminNotifyEmail); to != "" {
+			if _, err := mail.ParseAddress(to); err != nil {
+				return fmt.Errorf("valid admin notify email is required")
+			}
+		}
+	}
 	return nil
 }
 
 func sendSMTPTest(ctx context.Context, s smtpSettings, password, to string) error {
 	return email.Send(ctx, smtpSettingsToEmail(s, password), email.Message{
 		To:      to,
-		Subject: "ASUTPORT — тест SMTP",
-		HTML:    "<p>Это тестовое письмо из админки ASUTPORT. Если вы его получили — SMTP настроен верно.</p>",
+		Subject: email.SubjectSMTPTest,
+		Text:    email.SMTPTestText(),
+		HTML:    email.SMTPTestHTML(),
 	})
 }
 
 func smtpSettingsToEmail(s smtpSettings, password string) email.Settings {
 	return email.Settings{
-		Enabled:          s.Enabled,
-		FromEmail:        s.FromEmail,
-		FromName:         s.FromName,
-		ForceFromEmail:   s.ForceFromEmail,
-		ForceFromName:    s.ForceFromName,
-		ReplyToFromEmail: s.ReplyToFromEmail,
-		Host:             s.Host,
-		Port:             s.Port,
-		Encryption:       s.Encryption,
-		AutoTLS:          s.AutoTLS,
-		Auth:             s.Auth,
-		Username:         s.Username,
-		Password:         password,
+		Enabled:            s.Enabled,
+		FromEmail:          s.FromEmail,
+		FromName:           s.FromName,
+		ForceFromEmail:     s.ForceFromEmail,
+		ForceFromName:      s.ForceFromName,
+		ReplyToFromEmail:   s.ReplyToFromEmail,
+		AdminNotifyEmail:   s.AdminNotifyEmail,
+		AdminNotifyEnabled: s.AdminNotifyEnabled,
+		Host:               s.Host,
+		Port:               s.Port,
+		Encryption:         s.Encryption,
+		AutoTLS:            s.AutoTLS,
+		Auth:               s.Auth,
+		Username:           s.Username,
+		Password:           password,
 	}
 }
 

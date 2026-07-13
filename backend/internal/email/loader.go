@@ -15,19 +15,21 @@ import (
 const adminSettingSMTPKey = "email.smtp"
 
 type smtpStored struct {
-	Enabled          bool   `json:"enabled"`
-	FromEmail        string `json:"from_email"`
-	FromName         string `json:"from_name"`
-	ForceFromEmail   bool   `json:"force_from_email"`
-	ForceFromName    bool   `json:"force_from_name"`
-	ReplyToFromEmail bool   `json:"reply_to_from_email"`
-	Host             string `json:"host"`
-	Port             int    `json:"port"`
-	Encryption       string `json:"encryption"`
-	AutoTLS          bool   `json:"auto_tls"`
-	Auth             bool   `json:"auth"`
-	Username         string `json:"username"`
-	PasswordEnc      string `json:"password_enc"`
+	Enabled            bool   `json:"enabled"`
+	FromEmail          string `json:"from_email"`
+	FromName           string `json:"from_name"`
+	ForceFromEmail     bool   `json:"force_from_email"`
+	ForceFromName      bool   `json:"force_from_name"`
+	ReplyToFromEmail   bool   `json:"reply_to_from_email"`
+	AdminNotifyEmail   string `json:"admin_notify_email"`
+	AdminNotifyEnabled bool   `json:"admin_notify_enabled"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	Encryption         string `json:"encryption"`
+	AutoTLS            bool   `json:"auto_tls"`
+	Auth               bool   `json:"auth"`
+	Username           string `json:"username"`
+	PasswordEnc        string `json:"password_enc"`
 }
 
 type Loader struct {
@@ -41,12 +43,13 @@ func NewLoader(repo *repository.AdminSettingsRepo, jwtSecret string) *Loader {
 
 func (l *Loader) Load(ctx context.Context) (Settings, error) {
 	def := smtpStored{
-		Enabled:    false,
-		FromName:   "ASUTPORT",
-		Port:       465,
-		Encryption: "ssl",
-		AutoTLS:    true,
-		Auth:       true,
+		Enabled:            false,
+		FromName:           "ASUTPORT",
+		Port:               465,
+		Encryption:         "ssl",
+		AutoTLS:            true,
+		Auth:               true,
+		AdminNotifyEnabled: true,
 	}
 	var saved smtpStored
 	if err := l.repo.Get(ctx, adminSettingSMTPKey, &saved); err != nil {
@@ -60,19 +63,21 @@ func (l *Loader) Load(ctx context.Context) (Settings, error) {
 		return Settings{}, err
 	}
 	return Settings{
-		Enabled:          saved.Enabled,
-		FromEmail:        saved.FromEmail,
-		FromName:         saved.FromName,
-		ForceFromEmail:   saved.ForceFromEmail,
-		ForceFromName:    saved.ForceFromName,
-		ReplyToFromEmail: saved.ReplyToFromEmail,
-		Host:             saved.Host,
-		Port:             saved.Port,
-		Encryption:       saved.Encryption,
-		AutoTLS:          saved.AutoTLS,
-		Auth:             saved.Auth,
-		Username:         saved.Username,
-		Password:         password,
+		Enabled:            saved.Enabled,
+		FromEmail:          saved.FromEmail,
+		FromName:           saved.FromName,
+		ForceFromEmail:     saved.ForceFromEmail,
+		ForceFromName:      saved.ForceFromName,
+		ReplyToFromEmail:   saved.ReplyToFromEmail,
+		AdminNotifyEmail:   saved.AdminNotifyEmail,
+		AdminNotifyEnabled: saved.AdminNotifyEnabled,
+		Host:               saved.Host,
+		Port:               saved.Port,
+		Encryption:         saved.Encryption,
+		AutoTLS:            saved.AutoTLS,
+		Auth:               saved.Auth,
+		Username:           saved.Username,
+		Password:           password,
 	}, nil
 }
 

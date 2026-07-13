@@ -32,6 +32,8 @@ type SMTPSettings = {
   force_from_email: boolean;
   force_from_name: boolean;
   reply_to_from_email: boolean;
+  admin_notify_email: string;
+  admin_notify_enabled: boolean;
   host: string;
   port: number;
   encryption: SMTPEncryption;
@@ -66,6 +68,8 @@ const defaultSMTP: SMTPView = {
     force_from_email: true,
     force_from_name: true,
     reply_to_from_email: true,
+    admin_notify_email: "",
+    admin_notify_enabled: true,
     host: "",
     port: 465,
     encryption: "ssl",
@@ -392,6 +396,29 @@ export function AdminSettingsPanels() {
             <Check checked={smtpView.settings.force_from_name} onChange={(v) => patchSMTP({ force_from_name: v })}>Всегда использовать это имя отправителя</Check>
             <Check checked={smtpView.settings.reply_to_from_email} onChange={(v) => patchSMTP({ reply_to_from_email: v })}>Использовать этот адрес как Reply-to</Check>
           </div>
+        </SettingsBlock>
+
+        <SettingsBlock title="Уведомления администратора">
+          <p className="mb-4 text-[13px] leading-6 text-[#6f6a62]">
+            На этот адрес приходят служебные письма о событиях платформы: регистрации, заявки и другие уведомления.
+          </p>
+          <label className="flex items-center gap-2 text-[13px] text-[#18212f]">
+            <input
+              type="checkbox"
+              checked={smtpView.settings.admin_notify_enabled}
+              onChange={(e) => patchSMTP({ admin_notify_enabled: e.target.checked })}
+            />
+            Отправлять уведомления администратору
+          </label>
+          <Field label="Email администратора" className="mt-4 block">
+            <input
+              className={inputClass}
+              type="email"
+              value={smtpView.settings.admin_notify_email}
+              onChange={(e) => patchSMTP({ admin_notify_email: e.target.value })}
+              placeholder="admin@asutport.ru"
+            />
+          </Field>
         </SettingsBlock>
 
         <SettingsBlock title="SMTP подключение">

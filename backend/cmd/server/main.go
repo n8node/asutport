@@ -92,9 +92,10 @@ func main() {
 	adminOrgs := repository.NewAdminOrgRepo(pool)
 	regVerify := repository.NewRegistrationVerificationRepo(pool)
 	emailLoader := email.NewLoader(adminSettings, cfg.JWTSecret)
+	emailNotify := email.NewNotifier(emailLoader)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
 
-	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, authSvc)
+	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, emailNotify, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
 	adminOrgH := handler.NewAdminOrgHandler(adminOrgs, orgs)
 	adminUserH := handler.NewAdminUserHandler(adminUsers)
