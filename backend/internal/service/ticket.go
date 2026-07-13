@@ -37,13 +37,13 @@ var allowedAttachmentTypes = map[string]bool{
 }
 
 type TicketService struct {
-	cfg      *config.Config
-	tickets  *repository.TicketRepo
-	orgs     *repository.OrgRepo
-	members  *repository.OrgMemberRepo
-	users    *repository.UserRepo
-	s3       *s3store.Client
-	notify   *email.Notifier
+	cfg       *config.Config
+	tickets   *repository.TicketRepo
+	orgs      *repository.OrgRepo
+	members   *repository.OrgMemberRepo
+	users     *repository.UserRepo
+	s3Loader  *s3store.Loader
+	notify    *email.Notifier
 }
 
 func NewTicketService(
@@ -52,18 +52,25 @@ func NewTicketService(
 	orgs *repository.OrgRepo,
 	members *repository.OrgMemberRepo,
 	users *repository.UserRepo,
-	s3 *s3store.Client,
+	s3Loader *s3store.Loader,
 	notify *email.Notifier,
 ) *TicketService {
 	return &TicketService{
-		cfg:     cfg,
-		tickets: tickets,
-		orgs:    orgs,
-		members: members,
-		users:   users,
-		s3:      s3,
-		notify:  notify,
+		cfg:      cfg,
+		tickets:  tickets,
+		orgs:     orgs,
+		members:  members,
+		users:    users,
+		s3Loader: s3Loader,
+		notify:   notify,
 	}
+}
+
+func (s *TicketService) storageClient(ctx context.Context) (*s3store.Client, error) {
+	if s.s3Loader == nil {
+		return nil, fmt.Errorf("object storage is not configured")
+	}
+	return s.s3Loader.Client(ctx)
 }
 
 func (s *TicketService) CreateOnboardingIfNeeded(ctx context.Context, orgID, userID uuid.UUID) (*models.Ticket, error) {
@@ -193,7 +200,7 @@ func (s *TicketService) PresignAttachment(
 	userID, orgID uuid.UUID,
 	in PresignAttachmentInput,
 ) (*PresignAttachmentResult, error) {
-	if s.s3 == nil {
+	if s.s3Loader == nil {
 		return nil, fmt.Errorf("object storage is not configured")
 	}
 	if ticket.Status == "closed" {
@@ -209,6 +216,10 @@ func (s *TicketService) PresignAttachment(
 	}
 	if in.SizeBytes <= 0 || in.SizeBytes > maxAttachmentBytes {
 		return nil, fmt.Errorf("invalid file size")
+	}
+	s3, err := s.storageClient(ctx)
+	if err != nil {
+		return nil, err
 	}
 	attID := uuid.New()
 	storageFilename := sanitizeS3StorageName(filename)
@@ -226,7 +237,7 @@ func (s *TicketService) PresignAttachment(
 	if err != nil {
 		return nil, err
 	}
-	url, err := s.s3.PresignPut(ctx, key, ct, 0)
+	url, err := s3.PresignPut(ctx, key, ct, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +257,7 @@ func (s *TicketService) UploadAttachment(
 	body io.Reader,
 	sizeBytes int64,
 ) (*models.TicketEvent, error) {
-	if s.s3 == nil {
+	if s.s3Loader == nil {
 		return nil, fmt.Errorf("object storage is not configured")
 	}
 	if ticket.Status == "closed" {
@@ -262,6 +273,10 @@ func (s *TicketService) UploadAttachment(
 	}
 	if sizeBytes <= 0 || sizeBytes > maxAttachmentBytes {
 		return nil, fmt.Errorf("invalid file size")
+	}
+	s3, err := s.storageClient(ctx)
+	if err != nil {
+		return nil, err
 	}
 	attID := uuid.New()
 	storageFilename := sanitizeS3StorageName(filename)
@@ -280,7 +295,7 @@ func (s *TicketService) UploadAttachment(
 	if err != nil {
 		return nil, err
 	}
-	if err := s.s3.PutObject(ctx, key, ct, body, sizeBytes); err != nil {
+	if err := s3.PutObject(ctx, key, ct, body, sizeBytes); err != nil {
 		return nil, fmt.Errorf("storage upload failed")
 	}
 	return s.completeAttachmentRecord(ctx, ticket, att, userID, orgID, isSuperAdmin)
@@ -340,8 +355,9 @@ func (s *TicketService) completeAttachmentRecord(
 }
 
 func (s *TicketService) AttachmentDownloadURL(ctx context.Context, ticket *models.Ticket, attachmentID uuid.UUID) (string, error) {
-	if s.s3 == nil {
-		return "", fmt.Errorf("object storage is not configured")
+	s3, err := s.storageClient(ctx)
+	if err != nil {
+		return "", err
 	}
 	att, err := s.tickets.GetAttachment(ctx, attachmentID)
 	if err != nil {
@@ -350,7 +366,7 @@ func (s *TicketService) AttachmentDownloadURL(ctx context.Context, ticket *model
 	if att.TicketID != ticket.ID || att.Status != "completed" {
 		return "", repository.ErrNotFound
 	}
-	return s.s3.PresignGet(ctx, att.S3Key, 0)
+	return s3.PresignGet(ctx, att.S3Key, 0)
 }
 
 func (s *TicketService) ApproveOrg(
@@ -519,9 +535,11 @@ func (s *TicketService) notifyTicketAttachment(ctx context.Context, ticket *mode
 		AdminURL:           s.cfg.PublicAppBaseURL() + "/admin/tickets/" + ticket.ID.String(),
 		AttachmentFilename: att.Filename,
 	}
-	if s.s3 != nil {
-		if url, err := s.s3.PresignGet(ctx, att.S3Key, 0); err == nil {
-			mail.AttachmentURL = url
+	if s.s3Loader != nil {
+		if s3, err := s.storageClient(ctx); err == nil {
+			if url, err := s3.PresignGet(ctx, att.S3Key, 0); err == nil {
+				mail.AttachmentURL = url
+			}
 		}
 	}
 	return s.notify.NotifyTicketActivity(ctx, mail, "")

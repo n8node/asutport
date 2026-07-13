@@ -7,17 +7,17 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-
-	s3store "github.com/n8node/asutport/internal/s3"
 )
 
 type Health struct {
 	Version string
 	Pool    *pgxpool.Pool
-	S3      *s3store.Client
+	S3      interface {
+		Ping(context.Context) error
+	}
 }
 
-func NewHealth(version string, pool *pgxpool.Pool, s3Client *s3store.Client) *Health {
+func NewHealth(version string, pool *pgxpool.Pool, s3Client interface{ Ping(context.Context) error }) *Health {
 	return &Health{Version: version, Pool: pool, S3: s3Client}
 }
 

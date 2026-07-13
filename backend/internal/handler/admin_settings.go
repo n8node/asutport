@@ -234,6 +234,10 @@ func (h *AdminSettingsHandler) S3Test(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "STORAGE_TEST_FAILED", err.Error())
 		return
 	}
+	if err := client.PutObject(ctx, "healthcheck/upload-test.txt", "text/plain", strings.NewReader("asutport-s3-ok"), 15); err != nil {
+		WriteError(w, http.StatusBadRequest, "STORAGE_TEST_FAILED", "запись в бакет не удалась: "+err.Error())
+		return
+	}
 	WriteJSON(w, http.StatusOK, map[string]any{"data": map[string]any{"ok": true}})
 }
 

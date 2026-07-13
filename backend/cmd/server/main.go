@@ -76,18 +76,13 @@ func main() {
 		return
 	}
 
-	s3Client, err := s3store.NewClient(cfg)
-	if err != nil {
-		logger.Error("s3", slog.Any("err", err))
-		os.Exit(1)
-	}
-
 	users := repository.NewUserRepo(pool)
 	orgs := repository.NewOrgRepo(pool)
 	members := repository.NewOrgMemberRepo(pool)
 	sessions := repository.NewSessionRepo(pool)
 	apiKeys := repository.NewAPIKeyRepo(pool)
 	adminSettings := repository.NewAdminSettingsRepo(pool)
+	s3Loader := s3store.NewLoader(adminSettings, cfg)
 	adminUsers := repository.NewAdminUserRepo(pool)
 	adminOrgs := repository.NewAdminOrgRepo(pool)
 	regVerify := repository.NewRegistrationVerificationRepo(pool)
@@ -95,7 +90,7 @@ func main() {
 	emailLoader := email.NewLoader(adminSettings, cfg.JWTSecret)
 	emailNotify := email.NewNotifier(emailLoader)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
-	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, s3Client, emailNotify)
+	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, s3Loader, emailNotify)
 
 	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, emailNotify, ticketSvc, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
@@ -117,7 +112,7 @@ func main() {
 	h := server.New(server.Options{
 		Logger: logger,
 		Handlers: server.Handlers{
-			Health:   handler.NewHealth(cfg.Version, pool, s3Client),
+			Health:   handler.NewHealth(cfg.Version, pool, s3Loader),
 			AuthDeps: authDeps,
 			LoginRL:  loginRL,
 			Auth: server.AuthHandlers{
