@@ -38,54 +38,66 @@ server {
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
-    location /kb {
-        set $frontend_upstream http://frontend:3000;
-        proxy_pass $frontend_upstream;
+    location = /app {
+        return 302 /app/login;
+    }
+
+    location = /app/ {
+        return 302 /app/login;
+    }
+
+    location = /app/db {
+        return 301 /app/db/;
+    }
+
+    location /app/db/ {
+        auth_basic "ASUTPORT database";
+        auth_basic_user_file /etc/nginx/auth/adminer.htpasswd;
+
+        set $adminer_upstream http://adminer:8080;
+        rewrite ^/app/db/(.*)$ /$1 break;
+        proxy_pass $adminer_upstream;
+        proxy_redirect / /app/db/;
         include /etc/nginx/includes/proxy-base.conf;
     }
 
-    location /login {
+    location /app/ {
         set $frontend_upstream http://frontend:3000;
-        proxy_pass $frontend_upstream;
-        include /etc/nginx/includes/proxy-base.conf;
-    }
-
-    location /register {
-        set $frontend_upstream http://frontend:3000;
+        rewrite ^/app/(.*)$ /$1 break;
         proxy_pass $frontend_upstream;
         include /etc/nginx/includes/proxy-base.conf;
     }
 
     location = /db {
-        return 301 /db/;
+        return 301 /app/db/;
     }
 
     location /db/ {
-        auth_basic "ASUTPORT database";
-        auth_basic_user_file /etc/nginx/auth/adminer.htpasswd;
+        return 301 /app/db/;
+    }
 
-        set $adminer_upstream http://adminer:8080;
-        proxy_pass $adminer_upstream/;
-        proxy_redirect / /db/;
-        include /etc/nginx/includes/proxy-base.conf;
+    location /login {
+        return 301 /app/login;
+    }
+
+    location /register {
+        return 301 /app/register;
     }
 
     location /dashboard {
-        set $frontend_upstream http://frontend:3000;
-        proxy_pass $frontend_upstream;
-        include /etc/nginx/includes/proxy-base.conf;
+        return 301 /app/dashboard;
     }
 
     location /vendor {
-        set $frontend_upstream http://frontend:3000;
-        proxy_pass $frontend_upstream;
-        include /etc/nginx/includes/proxy-base.conf;
+        return 301 /app/vendor;
     }
 
     location /admin {
-        set $frontend_upstream http://frontend:3000;
-        proxy_pass $frontend_upstream;
-        include /etc/nginx/includes/proxy-base.conf;
+        return 301 /app/admin;
+    }
+
+    location /kb {
+        return 301 /app/kb;
     }
 
     location /wp-admin/ {

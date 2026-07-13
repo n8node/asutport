@@ -47,12 +47,12 @@ const passwordRules = [
 
 function routeForRole(role?: string) {
   if (role === "superadmin") {
-    return "/admin";
+    return "/app/admin";
   }
   if (role === "support_engineer" || role === "admin") {
-    return "/vendor";
+    return "/app/vendor";
   }
-  return "/dashboard";
+  return "/app/dashboard";
 }
 
 function passwordScore(password: string) {
@@ -148,7 +148,7 @@ export function AuthCard({ mode }: AuthCardProps) {
     <main className="auth-page min-h-screen px-4 py-8 text-[#1f2933]">
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[448px] items-center">
         <section className="w-full rounded-2xl border border-[#dfe5eb] bg-white px-8 py-9 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-          <Link href="/kb" className="inline-flex items-center gap-3" aria-label="ASUTPORT">
+          <Link href="/app/kb" className="inline-flex items-center gap-3" aria-label="ASUTPORT">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#0f2f2b] font-logo text-sm font-bold text-[#3fc8b7]">
               A
             </span>
@@ -291,7 +291,7 @@ export function AuthCard({ mode }: AuthCardProps) {
                   />
                   <span>
                     Согласие с{" "}
-                    <Link href="/kb" className="text-[#246b82] hover:text-[#0d9488]">
+                    <Link href="/app/kb" className="text-[#246b82] hover:text-[#0d9488]">
                       политикой обработки персональных данных
                     </Link>
                   </span>
@@ -321,7 +321,7 @@ export function AuthCard({ mode }: AuthCardProps) {
           <p className="mt-6 text-center text-sm text-[#6b7280]">
             {isRegister ? "Уже есть аккаунт?" : "Нет аккаунта?"}{" "}
             <Link
-              href={isRegister ? "/login" : "/register"}
+              href={isRegister ? "/app/login" : "/app/register"}
               className="font-medium text-[#246b82] hover:text-[#0d9488]"
             >
               {isRegister ? "Войти" : "Зарегистрироваться"}
