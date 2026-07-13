@@ -39,39 +39,46 @@ type NavSection = {
   items: NavItem[];
 };
 
-const navSections: NavSection[] = [
-  {
-    title: "Обзор",
-    items: [
-      { label: "Dashboard", href: "/app/dashboard", icon: DashboardIcon },
-      { label: "ИИ-агент", href: "#agent", icon: SparkIcon, badge: "скоро" },
-    ],
-  },
-  {
-    title: "Поддержка",
-    items: [
-      { label: "Тикеты", href: "/app/dashboard/onboarding", icon: TicketIcon, badge: "0" },
-      { label: "SLA-таймеры", href: "#sla", icon: ClockIcon },
-      { label: "База знаний", href: "/app/kb", icon: BookIcon },
-    ],
-  },
-  {
-    title: "Установка",
-    items: [
-      { label: "Профиль установки", href: "#installation", icon: FactoryIcon },
-      { label: "Продукты и версии", href: "#products", icon: BoxesIcon },
-      { label: "Слепки конфигурации", href: "#snapshots", icon: FileIcon },
-    ],
-  },
-  {
-    title: "Организация",
-    items: [
-      { label: "Сотрудники", href: "#members", icon: UsersIcon },
-      { label: "Entitlement", href: "#entitlement", icon: ShieldIcon },
-      { label: "Биллинг", href: "#billing", icon: CardIcon },
-    ],
-  },
-];
+const onboardingPath = "/app/dashboard/onboarding";
+
+function buildNavSections(pendingReview: boolean): NavSection[] {
+  return [
+    {
+      title: "Обзор",
+      items: [
+        { label: "Dashboard", href: "/app/dashboard", icon: DashboardIcon },
+        { label: "ИИ-агент", href: "#agent", icon: SparkIcon, badge: "скоро" },
+      ],
+    },
+    {
+      title: "Поддержка",
+      items: [
+        { label: "Тикеты", href: "#tickets", icon: TicketIcon, badge: pendingReview ? undefined : "0" },
+        { label: "SLA-таймеры", href: "#sla", icon: ClockIcon },
+        { label: "База знаний", href: "/app/kb", icon: BookIcon },
+      ],
+    },
+    {
+      title: "Установка",
+      items: [
+        { label: "Профиль установки", href: "#installation", icon: FactoryIcon },
+        { label: "Продукты и версии", href: "#products", icon: BoxesIcon },
+        { label: "Слепки конфигурации", href: "#snapshots", icon: FileIcon },
+      ],
+    },
+    {
+      title: "Организация",
+      items: [
+        ...(pendingReview
+          ? [{ label: "Статус компании", href: onboardingPath, icon: StatusIcon, badge: "!" }]
+          : []),
+        { label: "Сотрудники", href: "#members", icon: UsersIcon },
+        { label: "Entitlement", href: "#entitlement", icon: ShieldIcon },
+        { label: "Биллинг", href: "#billing", icon: CardIcon },
+      ],
+    },
+  ];
+}
 
 function initials(email: string) {
   const local = email.split("@")[0] || "user";
@@ -107,6 +114,7 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
   const [reviewStatus, setReviewStatus] = useState("");
   const avatar = useMemo(() => initials(email), [email]);
   const pendingReview = reviewStatus === "pending_review" || reviewBanner;
+  const navSections = useMemo(() => buildNavSections(pendingReview), [pendingReview]);
 
   useEffect(() => {
     const token = sessionStorage.getItem("asutport_access_token");
@@ -162,30 +170,40 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
               <ul className="space-y-px">
                 {section.items.map((item) => {
                   const Icon = item.icon;
-                  const href = pendingReview && item.href.startsWith("#") ? "/app/dashboard/onboarding" : item.href;
-                  const isActive = activePath === href || (item.label === "Dashboard" && activePath === "/app/dashboard");
-                  const disabled = pendingReview && item.href.startsWith("#") && href !== "/app/dashboard/onboarding";
+                  const href = item.href;
+                  const isActive =
+                    activePath === href ||
+                    (item.label === "Dashboard" && activePath === "/app/dashboard");
+                  const disabled = pendingReview && item.href.startsWith("#");
+                  const className = isActive
+                    ? "flex items-center gap-2 rounded-md bg-[#ebe9e4] px-3 py-[7px] font-medium text-[#18212f]"
+                    : disabled
+                      ? "flex cursor-not-allowed items-center gap-2 rounded-md px-3 py-[7px] text-[#b5b0a8]"
+                      : "flex items-center gap-2 rounded-md px-3 py-[7px] text-[#5f6b7a] transition-colors hover:bg-[#ebe9e4] hover:text-[#18212f]";
+
                   return (
                     <li key={item.label}>
-                      <Link
-                        href={href}
-                        className={
-                          isActive
-                            ? "flex items-center gap-2 rounded-md bg-[#ebe9e4] px-3 py-[7px] font-medium text-[#18212f]"
-                            : disabled
-                              ? "flex items-center gap-2 rounded-md px-3 py-[7px] text-[#b5b0a8]"
-                              : "flex items-center gap-2 rounded-md px-3 py-[7px] text-[#5f6b7a] transition-colors hover:bg-[#ebe9e4] hover:text-[#18212f]"
-                        }
-                        aria-disabled={disabled}
-                      >
-                        <Icon />
-                        <span className="flex-1 truncate">{item.label}</span>
-                        {item.badge ? (
-                          <span className="rounded-[10px] bg-[#e6f1fb] px-1.5 py-0.5 text-[10px] font-semibold text-[#185fa5]">
-                            {pendingReview && item.label === "Тикеты" ? "!" : item.badge}
-                          </span>
-                        ) : null}
-                      </Link>
+                      {disabled ? (
+                        <span className={className} aria-disabled="true">
+                          <Icon />
+                          <span className="flex-1 truncate">{item.label}</span>
+                          {item.badge ? (
+                            <span className="rounded-[10px] bg-[#ebe9e4] px-1.5 py-0.5 text-[10px] font-semibold text-[#8a857d]">
+                              {item.badge}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : (
+                        <Link href={href} className={className}>
+                          <Icon />
+                          <span className="flex-1 truncate">{item.label}</span>
+                          {item.badge ? (
+                            <span className="rounded-[10px] bg-[#e6f1fb] px-1.5 py-0.5 text-[10px] font-semibold text-[#185fa5]">
+                              {item.badge}
+                            </span>
+                          ) : null}
+                        </Link>
+                      )}
                     </li>
                   );
                 })}
@@ -212,8 +230,8 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
                   <span className="h-1.5 w-1.5 rounded-full bg-[#ba7517]" />
                   Организация на проверке
                 </span>
-                <Link href="/app/dashboard/onboarding" className="mt-1 block pl-3.5 text-[10px] text-[#9f7a3b] underline">
-                  Открыть тикет и приложить документы
+                <Link href={onboardingPath} className="mt-1 block pl-3.5 text-[10px] text-[#9f7a3b] underline">
+                  Открыть статус и переписку
                 </Link>
               </>
             ) : (
@@ -268,10 +286,10 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
           {pendingReview && activePath === "/app/dashboard" ? (
             <div className="mb-6 rounded-lg border border-[#e8d9b3] bg-[#f6f0df] px-4 py-3 text-[13px] text-[#6d4a1f]">
               Организация ожидает проверки платформой.{" "}
-              <Link href="/app/dashboard/onboarding" className="font-medium underline">
-                Откройте тикет
+              <Link href={onboardingPath} className="font-medium underline">
+                Откройте «Статус компании»
               </Link>{" "}
-              и приложите подтверждающие документы. Остальные разделы кабинета станут доступны после активации.
+              и приложите подтверждающие документы. Раздел «Поддержка» станет доступен после активации.
             </div>
           ) : null}
           {children}
@@ -338,6 +356,16 @@ function UsersIcon() {
 }
 function ShieldIcon() {
   return <IconBase><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /></IconBase>;
+}
+function StatusIcon() {
+  return (
+    <IconBase>
+      <path d="M4 21h16" />
+      <path d="M6 21V7l6-4 6 4v14" />
+      <path d="M10 11h4" />
+      <path d="M10 15h4" />
+    </IconBase>
+  );
 }
 function CardIcon() {
   return <IconBase><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></IconBase>;

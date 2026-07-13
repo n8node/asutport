@@ -39,7 +39,7 @@ export function ConfirmRegistrationContent() {
         setStatus("success");
         setMessage(
           body.data?.review_status === "pending_review"
-            ? body.data.message || "Email подтверждён. Войдите и откройте тикет проверки организации."
+            ? body.data.message || "Email подтверждён. Войдите и откройте раздел «Статус компании»."
             : body.data?.message || "Email подтверждён.",
         );
       })

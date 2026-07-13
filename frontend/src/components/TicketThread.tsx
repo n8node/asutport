@@ -41,10 +41,11 @@ type TicketEvent = {
 type TicketThreadProps = {
   ticketID: string;
   mode: "client" | "admin";
+  context?: "onboarding" | "support";
   onTicketUpdate?: (ticket: Ticket) => void;
 };
 
-export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadProps) {
+export function TicketThread({ ticketID, mode, context = "support", onTicketUpdate }: TicketThreadProps) {
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [events, setEvents] = useState<TicketEvent[]>([]);
   const [text, setText] = useState("");
@@ -204,8 +205,10 @@ export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadPro
     window.open(body.data.url, "_blank", "noopener,noreferrer");
   }
 
+  const isOnboarding = context === "onboarding" && mode === "client";
+
   if (status === "loading") {
-    return <p className="text-sm text-[#6f6a62]">Загружаем тикет...</p>;
+    return <p className="text-sm text-[#6f6a62]">{isOnboarding ? "Загружаем переписку..." : "Загружаем тикет..."}</p>;
   }
   if (status === "error") {
     return <p className="text-sm text-[#b42318]">{error || "Ошибка загрузки"}</p>;
@@ -216,11 +219,15 @@ export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadPro
   return (
     <div className="space-y-4">
       <header className="rounded-lg border border-[#dedbd3] bg-white p-4">
-        <h1 className="text-lg font-semibold text-[#18212f]">{ticket?.subject}</h1>
+        <h2 className="text-lg font-semibold text-[#18212f]">
+          {isOnboarding ? "Переписка с платформой" : ticket?.subject}
+        </h2>
         <div className="mt-2 flex flex-wrap gap-3 text-[12px] text-[#6f6a62]">
-          <span>Статус: {statusLabel(ticket?.status)}</span>
+          <span>
+            {isOnboarding ? "Заявка" : "Статус"}: {isOnboarding ? onboardingStatusLabel(ticket) : statusLabel(ticket?.status)}
+          </span>
           {ticket?.client_org_inn ? <span>ИНН: {ticket.client_org_inn}</span> : null}
-          {ticket?.client_review_status ? (
+          {!isOnboarding && ticket?.client_review_status ? (
             <span>Проверка org: {ticket.client_review_status}</span>
           ) : null}
           {ticket?.attachments && ticket.attachments.length > 0 ? (
@@ -311,7 +318,9 @@ export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadPro
             </div>
           </div>
         ) : (
-          <div className="border-t border-[#ebe9e4] p-4 text-[13px] text-[#6f6a62]">Тикет закрыт.</div>
+          <div className="border-t border-[#ebe9e4] p-4 text-[13px] text-[#6f6a62]">
+            {isOnboarding ? "Заявка на подключение закрыта." : "Тикет закрыт."}
+          </div>
         )}
       </section>
 
@@ -351,6 +360,19 @@ export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadPro
       {error ? <p className="text-sm text-[#b42318]">{error}</p> : null}
     </div>
   );
+}
+
+function onboardingStatusLabel(ticket?: Ticket | null) {
+  if (ticket?.client_review_status === "pending_review") {
+    return "на проверке";
+  }
+  if (ticket?.client_review_status === "rejected") {
+    return "отклонена";
+  }
+  if (ticket?.status === "closed") {
+    return "завершена";
+  }
+  return statusLabel(ticket?.status);
 }
 
 function statusLabel(status?: string) {
