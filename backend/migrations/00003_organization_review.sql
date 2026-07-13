@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose NO TRANSACTION
+-- +goose StatementBegin
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'org_review_status') THEN
@@ -12,6 +13,7 @@ BEGIN
         );
     END IF;
 END $$;
+-- +goose StatementEnd
 
 ALTER TYPE org_type ADD VALUE IF NOT EXISTS 'vendor';
 
