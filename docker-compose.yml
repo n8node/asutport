@@ -8,10 +8,13 @@ services:
         condition: service_healthy
       wordpress:
         condition: service_started
+      adminer:
+        condition: service_started
     ports:
       - "80:80"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/auth:/etc/nginx/auth:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
     healthcheck:
       test: ["CMD-SHELL", "nginx -t"]
@@ -90,6 +93,17 @@ services:
       - wp_uploads:/var/www/html
     expose:
       - "80"
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:4.8.1
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8080"
     restart: unless-stopped
 
   postgres:

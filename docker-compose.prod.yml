@@ -52,6 +52,14 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  adminer:
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   wordpress:
     restart: unless-stopped
     logging:

@@ -22,7 +22,9 @@ yarn-error.log*
 # Docker / nginx
 nginx/ssl/*.pem
 nginx/conf.d/https.conf
+nginx/auth/*.htpasswd
 !nginx/ssl/.gitkeep
+!nginx/auth/.gitkeep
 
 # Backups & uploads
 backups/*
