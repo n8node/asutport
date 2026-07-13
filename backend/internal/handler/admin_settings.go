@@ -228,7 +228,7 @@ func (h *AdminSettingsHandler) S3Test(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "STORAGE_TEST_FAILED", "S3 settings are incomplete")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx); err != nil {
 		WriteError(w, http.StatusBadRequest, "STORAGE_TEST_FAILED", err.Error())

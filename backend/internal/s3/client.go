@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -33,6 +35,15 @@ func NewClient(cfg *appconfig.Config) (*Client, error) {
 
 	awsCfg, err := config.LoadDefaultConfig(context.Background(),
 		config.WithRegion(region),
+		config.WithHTTPClient(&http.Client{
+			Timeout: 60 * time.Second,
+			Transport: &http.Transport{
+				TLSHandshakeTimeout:   15 * time.Second,
+				ResponseHeaderTimeout: 45 * time.Second,
+				ExpectContinueTimeout: 5 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+			},
+		}),
 		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.S3AccessKey,
 			cfg.S3SecretKey,
@@ -46,6 +57,9 @@ func NewClient(cfg *appconfig.Config) (*Client, error) {
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 		o.UsePathStyle = cfg.S3UsePathStyle
+		// Beget/MinIO and other S3-compatible stores reject aws-chunked trailing checksums.
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	})
 
 	return &Client{
