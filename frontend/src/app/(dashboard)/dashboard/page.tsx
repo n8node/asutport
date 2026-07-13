@@ -1,141 +1,137 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
-import type { ReactNode } from "react";
+import { DashboardPanel } from "@/components/dashboard/Ui";
+import { fetchClientTickets, fetchDashboardSummary, type DashboardSummary } from "@/lib/client-dashboard";
+import { SlaTimer } from "@/components/dashboard/SlaTimer";
 
 export default function DashboardPage() {
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void fetchDashboardSummary()
+      .then(setSummary)
+      .finally(() => setLoading(false));
+    void fetchClientTickets().then((tickets) => {
+      const open = tickets.filter((t) => !["resolved", "closed"].includes(t.status));
+      if (open.length > 0) setSummary((prev) => (prev ? { ...prev, open_tickets_count: open.length } : prev));
+    });
+  }, []);
+
+  const s = summary ?? {
+    installations_count: 0,
+    open_tickets_count: 0,
+    sla_active_count: 0,
+    coverage_percent: 0,
+    profile_complete: false,
+    products_count: 0,
+    supply_records_count: 0,
+  };
+
   return (
-    <DashboardShell>
+    <DashboardShell pageTitle="Сводка">
       <div className="mb-6">
-        <h1 className="text-2xl font-medium tracking-tight text-[#18212f] sm:text-[26px]">
-          Кабинет клиента
-        </h1>
+        <h1 className="text-2xl font-medium tracking-tight text-[#18212f] sm:text-[26px]">Кабинет эксплуатации</h1>
         <p className="mt-1 text-sm text-[#8a857d]">
           Единое окно поддержки: профиль установки, тикеты, агент и SLA.
         </p>
       </div>
 
+      {loading ? <p className="text-sm text-[#6f6a62]">Загрузка сводки…</p> : null}
+
       <section className="mb-8">
-        <h2 className="mb-3.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#9a948c]">
-          Сводка
-        </h2>
+        <h2 className="mb-3.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#9a948c]">Показатели</h2>
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryCard
-            label="Установки"
-            value="0"
-            note="Добавьте первую производственную площадку"
-            tone="blue"
-            progress={8}
-          />
-          <SummaryCard
-            label="Открытые тикеты"
-            value="0"
-            note="Новых обращений нет"
-            tone="green"
-            progress={4}
-          />
-          <SummaryCard
-            label="SLA"
-            value="—"
-            note="Активируется после тарифа и тикетов"
-            tone="amber"
-            progress={0}
-          />
-          <SummaryCard
-            label="Покрытие"
-            value="0%"
-            note="Заполните продукты и версии"
-            tone="purple"
-            progress={0}
-          />
+          <SummaryCard label="Установки" value={String(s.installations_count)} note={s.installations_count ? "Площадки на учёте" : "Добавьте первую площадку"} tone="blue" progress={Math.min(100, s.installations_count * 40)} />
+          <SummaryCard label="Открытые тикеты" value={String(s.open_tickets_count)} note={s.open_tickets_count ? "Требуют внимания" : "Новых обращений нет"} tone="green" progress={Math.min(100, s.open_tickets_count * 20)} />
+          <SummaryCard label="SLA" value={s.sla_active_count ? String(s.sla_active_count) : "—"} note={s.sla_active_count ? "Активных таймеров" : "Появятся с тикетами"} tone="amber" progress={s.sla_active_count ? 60 : 0} />
+          <SummaryCard label="Покрытие" value={`${s.coverage_percent}%`} note="Профиль, продукты, серийники" tone="purple" progress={s.coverage_percent} />
         </div>
       </section>
 
       <section className="mb-8">
-        <h2 className="mb-3.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#9a948c]">
-          Быстрые действия
-        </h2>
+        <h2 className="mb-3.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#9a948c]">Быстрые действия</h2>
         <div className="flex flex-wrap gap-2">
-          <ActionLink href="#agent" primary>Описать проблему агенту</ActionLink>
-          <ActionLink href="#tickets">Создать тикет</ActionLink>
-          <ActionLink href="#installation">Добавить установку</ActionLink>
-          <ActionLink href="/app/kb">Открыть базу знаний</ActionLink>
+          <ActionLink href="/app/dashboard/agent" primary>Описать проблему агенту</ActionLink>
+          <ActionLink href="/app/dashboard/tickets">Создать тикет</ActionLink>
+          <ActionLink href="/app/dashboard/installation">Профиль установки</ActionLink>
+          <ActionLink href="/app/kb">База знаний</ActionLink>
         </div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-12">
         <section className="lg:col-span-7">
-          <h2 className="mb-3.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#9a948c]">
-            Начните работу
-          </h2>
+          <h2 className="mb-3.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[#9a948c]">Начните работу</h2>
           <div className="rounded-lg border border-[#dedbd3] bg-white p-5 sm:p-6">
             <ol className="space-y-5">
-              <OnboardingStep done number="1" title="Аккаунт создан">
-                Вы вошли в личный кабинет ASUTPORT.
+              <OnboardingStep done number="1" title="Аккаунт создан">Вы вошли в кабинет ASUTPORT.</OnboardingStep>
+              <OnboardingStep done={s.profile_complete} number="2" title="Заполните профиль установки">
+                Площадка, критичность производства, аварийный контакт, среда эксплуатации.
               </OnboardingStep>
-              <OnboardingStep number="2" title="Заполните профиль установки">
-                Укажите площадку, продукты, версии, ОС/виртуализацию и критичность производства.
-              </OnboardingStep>
-              <OnboardingStep number="3" title="Добавьте продукты и entitlement">
-                Серийники, лицензии, поставщики и интеграторы определяют будущий маршрут эскалаций.
+              <OnboardingStep done={s.products_count > 0} number="3" title="Добавьте продукты и серийники">
+                Оборудование на объекте и записи о поставках определяют маршрут эскалаций.
               </OnboardingStep>
               <OnboardingStep number="4" title="Задайте первый вопрос агенту">
-                Агент ответит только с цитатами из документации или предложит эскалацию.
+                Агент ответит с цитатами из документации или предложит эскалацию.
               </OnboardingStep>
               <OnboardingStep number="5" title="Выберите тариф">
-                SLA и квоты тикетов подключаются после биллинга.
+                SLA и квоты тикетов подключаются в разделе «Биллинг».
               </OnboardingStep>
             </ol>
           </div>
         </section>
 
         <aside className="flex flex-col gap-4 lg:col-span-5">
-          <Panel title="Статус платформы">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-[13px] text-[#5f6b7a]">API / Postgres</span>
-              <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-[#3b6d11]">
-                <span className="h-2 w-2 rounded-full bg-[#3b6d11]" />
-                Норма
-              </span>
-            </div>
-            <p className="mt-3 text-[12px] text-[#8a857d]">
-              S3 на production может быть degraded до завершения настройки бакета.
-            </p>
-          </Panel>
-
-          <Panel title="Последние события">
-            <p className="text-[13px] text-[#6f6a62]">Пока нет тикетов и событий установки.</p>
-          </Panel>
-
-          <Panel title="SLA и мяч на стороне">
+          <DashboardPanel title="Покрытие поддержки">
             <p className="text-[13px] leading-5 text-[#6f6a62]">
-              Здесь появятся живые SLA-таймеры и текущий ответственный по каждому тикету.
+              Продуктов: <strong>{s.products_count}</strong> · Серийников: <strong>{s.supply_records_count}</strong>
             </p>
-          </Panel>
+            <p className="mt-2 text-[12px] text-[#8a857d]">
+              Полное покрытие возможно, когда производитель и поставщик подключены к платформе.
+            </p>
+          </DashboardPanel>
+
+          <DashboardPanel title="SLA и мяч на стороне">
+            <p className="text-[13px] leading-5 text-[#6f6a62]">
+              {s.sla_active_count
+                ? `Активных таймеров: ${s.sla_active_count}. Подробности — в разделе «SLA-таймеры».`
+                : "Здесь появятся живые SLA-таймеры по открытым тикетам."}
+            </p>
+            {s.sla_active_count ? (
+              <Link href="/app/dashboard/sla" className="mt-2 inline-block text-[12px] text-[#185fa5] underline">
+                Открыть SLA-таймеры
+              </Link>
+            ) : null}
+          </DashboardPanel>
+
+          <RecentSlaPreview />
         </aside>
       </div>
     </DashboardShell>
   );
 }
 
-function SummaryCard({
-  label,
-  value,
-  note,
-  tone,
-  progress,
-}: {
-  label: string;
-  value: string;
-  note: string;
-  tone: "blue" | "green" | "amber" | "purple";
-  progress: number;
-}) {
-  const colors = {
-    blue: "#185fa5",
-    green: "#3b6d11",
-    amber: "#854f0b",
-    purple: "#534ab7",
-  };
+function RecentSlaPreview() {
+  const [deadline, setDeadline] = useState<string | undefined>();
+  useEffect(() => {
+    void fetchClientTickets().then((items) => {
+      const open = items.find((t) => t.sla_reaction_deadline && !["resolved", "closed"].includes(t.status));
+      setDeadline(open?.sla_reaction_deadline);
+    });
+  }, []);
+  if (!deadline) return null;
+  return (
+    <DashboardPanel title="Ближайший дедлайн">
+      <SlaTimer deadline={deadline} />
+    </DashboardPanel>
+  );
+}
+
+function SummaryCard({ label, value, note, tone, progress }: { label: string; value: string; note: string; tone: "blue" | "green" | "amber" | "purple"; progress: number }) {
+  const colors = { blue: "#185fa5", green: "#3b6d11", amber: "#854f0b", purple: "#534ab7" };
   return (
     <div className="relative overflow-hidden rounded-lg border border-[#dedbd3] bg-white p-4">
       <div className="text-[10px] font-medium uppercase tracking-wide text-[#9a948c]">{label}</div>
@@ -148,49 +144,18 @@ function SummaryCard({
   );
 }
 
-function ActionLink({
-  children,
-  href,
-  primary = false,
-}: {
-  children: ReactNode;
-  href: string;
-  primary?: boolean;
-}) {
+function ActionLink({ children, href, primary = false }: { children: React.ReactNode; href: string; primary?: boolean }) {
   return (
-    <Link
-      href={href}
-      className={
-        primary
-          ? "rounded-full bg-[#18212f] px-4 py-2 text-[12px] font-medium text-white hover:opacity-90"
-          : "rounded-full border border-[#d7d2ca] px-4 py-2 text-[12px] font-medium text-[#18212f] hover:bg-[#ebe9e4]"
-      }
-    >
+    <Link href={href} className={primary ? "rounded-full bg-[#18212f] px-4 py-2 text-[12px] font-medium text-white hover:opacity-90" : "rounded-full border border-[#d7d2ca] px-4 py-2 text-[12px] font-medium text-[#18212f] hover:bg-[#ebe9e4]"}>
       {children}
     </Link>
   );
 }
 
-function OnboardingStep({
-  number,
-  title,
-  children,
-  done = false,
-}: {
-  number: string;
-  title: string;
-  children: ReactNode;
-  done?: boolean;
-}) {
+function OnboardingStep({ number, title, children, done = false }: { number: string; title: string; children: React.ReactNode; done?: boolean }) {
   return (
     <li className="flex gap-3">
-      <div
-        className={
-          done
-            ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#3b6d11] text-white"
-            : "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#d7d2ca] bg-[#ebe9e4] text-[11px] font-medium text-[#18212f]"
-        }
-      >
+      <div className={done ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#3b6d11] text-white" : "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[#d7d2ca] bg-[#ebe9e4] text-[11px] font-medium text-[#18212f]"}>
         {done ? "✓" : number}
       </div>
       <div>
@@ -198,16 +163,5 @@ function OnboardingStep({
         <p className="mt-0.5 text-[12px] text-[#5f6b7a]">{children}</p>
       </div>
     </li>
-  );
-}
-
-function Panel({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-[#dedbd3] bg-white p-4">
-      <h2 className="mb-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[#9a948c]">
-        {title}
-      </h2>
-      {children}
-    </section>
   );
 }

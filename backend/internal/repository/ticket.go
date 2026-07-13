@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,13 +23,15 @@ func NewTicketRepo(pool *pgxpool.Pool) *TicketRepo {
 }
 
 type TicketCreateParams struct {
-	ClientOrgID      uuid.UUID
-	Type             string
-	Priority         string
-	Status           string
-	BallOwnerOrgID   *uuid.UUID
-	Subject          string
-	CreatedByUserID  uuid.UUID
+	ClientOrgID         uuid.UUID
+	InstallationID      *uuid.UUID
+	Type                string
+	Priority            string
+	Status              string
+	BallOwnerOrgID      *uuid.UUID
+	Subject             string
+	CreatedByUserID     uuid.UUID
+	SLAReactionDeadline *time.Time
 }
 
 func (r *TicketRepo) Create(ctx context.Context, p TicketCreateParams) (*models.Ticket, error) {
@@ -40,19 +43,21 @@ func (r *TicketRepo) Create(ctx context.Context, p TicketCreateParams) (*models.
 		p.Status = "open"
 	}
 	q := `INSERT INTO tickets (
-			id, client_org_id, type, priority, status, ball_owner_org_id, subject, created_by_user_id
-		) VALUES ($1, $2, $3::ticket_type, $4::ticket_priority, $5::ticket_status, $6, $7, $8)
+			id, client_org_id, installation_id, type, priority, status, ball_owner_org_id, subject,
+			created_by_user_id, sla_reaction_deadline
+		) VALUES ($1, $2, $3, $4::ticket_type, $5::ticket_priority, $6::ticket_status, $7, $8, $9, $10)
 		RETURNING id, client_org_id, installation_id, type::text, priority::text, status::text,
-			ball_owner_org_id, subject, created_by_user_id, created_at, updated_at`
+			ball_owner_org_id, subject, created_by_user_id, sla_reaction_deadline, created_at, updated_at`
 	row := r.pool.QueryRow(ctx, q,
-		id, p.ClientOrgID, p.Type, p.Priority, p.Status, p.BallOwnerOrgID, p.Subject, p.CreatedByUserID,
+		id, p.ClientOrgID, p.InstallationID, p.Type, p.Priority, p.Status, p.BallOwnerOrgID, p.Subject,
+		p.CreatedByUserID, p.SLAReactionDeadline,
 	)
 	return scanTicket(row)
 }
 
 func (r *TicketRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Ticket, error) {
 	q := `SELECT t.id, t.client_org_id, t.installation_id, t.type::text, t.priority::text, t.status::text,
-			t.ball_owner_org_id, t.subject, t.created_by_user_id, t.created_at, t.updated_at,
+			t.ball_owner_org_id, t.subject, t.created_by_user_id, t.sla_reaction_deadline, t.created_at, t.updated_at,
 			o.name, o.type::text, o.inn, o.review_status::text
 		FROM tickets t
 		JOIN organizations o ON o.id = t.client_org_id
@@ -67,7 +72,7 @@ func (r *TicketRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Ticket,
 
 func (r *TicketRepo) GetOnboardingByClientOrg(ctx context.Context, orgID uuid.UUID) (*models.Ticket, error) {
 	q := `SELECT t.id, t.client_org_id, t.installation_id, t.type::text, t.priority::text, t.status::text,
-			t.ball_owner_org_id, t.subject, t.created_by_user_id, t.created_at, t.updated_at,
+			t.ball_owner_org_id, t.subject, t.created_by_user_id, t.sla_reaction_deadline, t.created_at, t.updated_at,
 			o.name, o.type::text, o.inn, o.review_status::text
 		FROM tickets t
 		JOIN organizations o ON o.id = t.client_org_id
@@ -97,7 +102,7 @@ func (r *TicketRepo) ListOnboarding(ctx context.Context, reviewStatus string, li
 		return nil, 0, fmt.Errorf("count onboarding tickets: %w", err)
 	}
 	q := `SELECT t.id, t.client_org_id, t.installation_id, t.type::text, t.priority::text, t.status::text,
-			t.ball_owner_org_id, t.subject, t.created_by_user_id, t.created_at, t.updated_at,
+			t.ball_owner_org_id, t.subject, t.created_by_user_id, t.sla_reaction_deadline, t.created_at, t.updated_at,
 			o.name, o.type::text, o.inn, o.review_status::text
 		FROM tickets t
 		JOIN organizations o ON o.id = t.client_org_id
@@ -118,6 +123,64 @@ func (r *TicketRepo) ListOnboarding(ctx context.Context, reviewStatus string, li
 		out = append(out, *t)
 	}
 	return out, total, rows.Err()
+}
+
+func (r *TicketRepo) ListByClientOrg(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]models.Ticket, int, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	countQ := `SELECT COUNT(*) FROM tickets WHERE client_org_id = $1 AND type <> 'onboarding'`
+	var total int
+	if err := r.pool.QueryRow(ctx, countQ, orgID).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count client tickets: %w", err)
+	}
+	q := `SELECT t.id, t.client_org_id, t.installation_id, t.type::text, t.priority::text, t.status::text,
+			t.ball_owner_org_id, t.subject, t.created_by_user_id, t.sla_reaction_deadline, t.created_at, t.updated_at,
+			o.name, o.type::text, o.inn, o.review_status::text
+		FROM tickets t
+		JOIN organizations o ON o.id = t.client_org_id
+		WHERE t.client_org_id = $1 AND t.type <> 'onboarding'
+		ORDER BY t.updated_at DESC
+		LIMIT $2 OFFSET $3`
+	rows, err := r.pool.Query(ctx, q, orgID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list client tickets: %w", err)
+	}
+	defer rows.Close()
+	var out []models.Ticket
+	for rows.Next() {
+		t, err := scanTicketDetail(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, *t)
+	}
+	return out, total, rows.Err()
+}
+
+func (r *TicketRepo) CountOpenByClientOrg(ctx context.Context, orgID uuid.UUID) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM tickets
+		 WHERE client_org_id = $1 AND type <> 'onboarding' AND status NOT IN ('resolved', 'closed')`,
+		orgID,
+	).Scan(&n)
+	return n, err
+}
+
+func (r *TicketRepo) CountSLAActiveByClientOrg(ctx context.Context, orgID uuid.UUID) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM tickets
+		 WHERE client_org_id = $1 AND type <> 'onboarding'
+		   AND status NOT IN ('resolved', 'closed')
+		   AND sla_reaction_deadline IS NOT NULL`,
+		orgID,
+	).Scan(&n)
+	return n, err
 }
 
 func (r *TicketRepo) UpdateStatus(ctx context.Context, ticketID uuid.UUID, status string, ballOwnerOrgID *uuid.UUID) error {
@@ -256,7 +319,7 @@ func scanTicket(row pgx.Row) (*models.Ticket, error) {
 	var createdBy *uuid.UUID
 	if err := row.Scan(
 		&t.ID, &t.ClientOrgID, &installationID, &t.Type, &t.Priority, &t.Status,
-		&ballOwner, &t.Subject, &createdBy, &t.CreatedAt, &t.UpdatedAt,
+		&ballOwner, &t.Subject, &createdBy, &t.SLAReactionDeadline, &t.CreatedAt, &t.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -273,7 +336,7 @@ func scanTicketDetail(row pgx.Row) (*models.Ticket, error) {
 	var createdBy *uuid.UUID
 	if err := row.Scan(
 		&t.ID, &t.ClientOrgID, &installationID, &t.Type, &t.Priority, &t.Status,
-		&ballOwner, &t.Subject, &createdBy, &t.CreatedAt, &t.UpdatedAt,
+		&ballOwner, &t.Subject, &createdBy, &t.SLAReactionDeadline, &t.CreatedAt, &t.UpdatedAt,
 		&t.ClientOrgName, &t.ClientOrgType, &t.ClientOrgINN, &t.ClientReviewStatus,
 	); err != nil {
 		return nil, err

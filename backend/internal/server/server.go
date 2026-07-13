@@ -15,6 +15,7 @@ type Handlers struct {
 	Auth      AuthHandlers
 	Org       OrgHandlers
 	Ticket    TicketHandlers
+	Client    ClientHandlers
 	AdminOrg  AdminOrgHandlers
 	AdminUser AdminUserHandlers
 	APIKey    APIKeyHandlers
@@ -39,17 +40,33 @@ type OrgHandlers struct {
 }
 
 type TicketHandlers struct {
-	GetOnboarding      http.HandlerFunc
-	Get                http.HandlerFunc
-	ListEvents         http.HandlerFunc
-	PostMessage        http.HandlerFunc
-	PresignAttachment  http.HandlerFunc
-	UploadAttachment   http.HandlerFunc
-	CompleteAttachment http.HandlerFunc
-	AttachmentURL      http.HandlerFunc
+	GetOnboarding       http.HandlerFunc
+	Get                 http.HandlerFunc
+	ListEvents          http.HandlerFunc
+	PostMessage         http.HandlerFunc
+	PresignAttachment   http.HandlerFunc
+	UploadAttachment    http.HandlerFunc
+	CompleteAttachment  http.HandlerFunc
+	AttachmentURL       http.HandlerFunc
 	ListOnboardingAdmin http.HandlerFunc
-	ApproveOrg         http.HandlerFunc
-	RejectOrg          http.HandlerFunc
+	ApproveOrg          http.HandlerFunc
+	RejectOrg           http.HandlerFunc
+}
+
+type ClientHandlers struct {
+	Dashboard          http.HandlerFunc
+	ListInstallations  http.HandlerFunc
+	CreateInstallation http.HandlerFunc
+	UpdateInstallation http.HandlerFunc
+	ListProducts       http.HandlerFunc
+	CreateProduct      http.HandlerFunc
+	UpdateProduct      http.HandlerFunc
+	DeleteProduct      http.HandlerFunc
+	ListSupplyRecords  http.HandlerFunc
+	CreateSupplyRecord http.HandlerFunc
+	DeleteSupplyRecord http.HandlerFunc
+	ListTickets        http.HandlerFunc
+	CreateTicket       http.HandlerFunc
 }
 
 type AdminOrgHandlers struct {
@@ -148,6 +165,22 @@ func New(opts Options) http.Handler {
 				r.Post("/attachments/upload", h.Ticket.UploadAttachment)
 				r.Post("/attachments/{attachmentID}/complete", h.Ticket.CompleteAttachment)
 				r.Get("/attachments/{attachmentID}/url", h.Ticket.AttachmentURL)
+			})
+
+			r.Route("/client", func(r chi.Router) {
+				r.Get("/dashboard", h.Client.Dashboard)
+				r.Get("/installations", h.Client.ListInstallations)
+				r.Post("/installations", h.Client.CreateInstallation)
+				r.Patch("/installations/{installationID}", h.Client.UpdateInstallation)
+				r.Get("/installations/{installationID}/products", h.Client.ListProducts)
+				r.Post("/installations/{installationID}/products", h.Client.CreateProduct)
+				r.Patch("/products/{productID}", h.Client.UpdateProduct)
+				r.Delete("/products/{productID}", h.Client.DeleteProduct)
+				r.Get("/supply-records", h.Client.ListSupplyRecords)
+				r.Post("/supply-records", h.Client.CreateSupplyRecord)
+				r.Delete("/supply-records/{recordID}", h.Client.DeleteSupplyRecord)
+				r.Get("/tickets", h.Client.ListTickets)
+				r.Post("/tickets", h.Client.CreateTicket)
 			})
 
 			r.Group(func(r chi.Router) {

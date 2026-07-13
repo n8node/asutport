@@ -7,15 +7,13 @@ import { useEffect, useMemo, useState } from "react";
 type DashboardShellProps = {
   children: ReactNode;
   activePath?: string;
+  pageTitle?: string;
   reviewBanner?: boolean;
 };
 
 type MeResponse = {
   data?: {
-    user?: {
-      email?: string;
-      full_name?: string;
-    };
+    user?: { email?: string; full_name?: string };
     org?: {
       name?: string;
       type?: string;
@@ -32,6 +30,7 @@ type NavItem = {
   icon: () => ReactNode;
   active?: boolean;
   badge?: string;
+  requiresActive?: boolean;
 };
 
 type NavSection = {
@@ -39,31 +38,33 @@ type NavSection = {
   items: NavItem[];
 };
 
-const onboardingPath = "/app/dashboard/onboarding";
+const base = "/app/dashboard";
+const onboardingPath = `${base}/onboarding`;
 
-function buildNavSections(pendingReview: boolean): NavSection[] {
+function buildNavSections(pendingReview: boolean, openTickets: number): NavSection[] {
+  const ticketBadge = pendingReview ? undefined : openTickets > 0 ? String(openTickets) : "0";
   return [
     {
       title: "Обзор",
       items: [
-        { label: "Dashboard", href: "/app/dashboard", icon: DashboardIcon },
-        { label: "ИИ-агент", href: "#agent", icon: SparkIcon, badge: "скоро" },
+        { label: "Сводка", href: base, icon: DashboardIcon },
+        { label: "ИИ-агент", href: `${base}/agent`, icon: SparkIcon, requiresActive: true },
       ],
     },
     {
       title: "Поддержка",
       items: [
-        { label: "Тикеты", href: "#tickets", icon: TicketIcon, badge: pendingReview ? undefined : "0" },
-        { label: "SLA-таймеры", href: "#sla", icon: ClockIcon },
+        { label: "Тикеты", href: `${base}/tickets`, icon: TicketIcon, badge: ticketBadge, requiresActive: true },
+        { label: "SLA-таймеры", href: `${base}/sla`, icon: ClockIcon, requiresActive: true },
         { label: "База знаний", href: "/app/kb", icon: BookIcon },
       ],
     },
     {
       title: "Установка",
       items: [
-        { label: "Профиль установки", href: "#installation", icon: FactoryIcon },
-        { label: "Продукты и версии", href: "#products", icon: BoxesIcon },
-        { label: "Слепки конфигурации", href: "#snapshots", icon: FileIcon },
+        { label: "Профиль установки", href: `${base}/installation`, icon: FactoryIcon, requiresActive: true },
+        { label: "Продукты и версии", href: `${base}/products`, icon: BoxesIcon, requiresActive: true },
+        { label: "Слепки конфигурации", href: `${base}/snapshots`, icon: FileIcon, requiresActive: true },
       ],
     },
     {
@@ -72,9 +73,9 @@ function buildNavSections(pendingReview: boolean): NavSection[] {
         ...(pendingReview
           ? [{ label: "Статус компании", href: onboardingPath, icon: StatusIcon, badge: "!" }]
           : []),
-        { label: "Сотрудники", href: "#members", icon: UsersIcon },
-        { label: "Entitlement", href: "#entitlement", icon: ShieldIcon },
-        { label: "Биллинг", href: "#billing", icon: CardIcon },
+        { label: "Сотрудники", href: `${base}/members`, icon: UsersIcon, requiresActive: true },
+        { label: "Серийники и гарантия", href: `${base}/supply`, icon: ShieldIcon, requiresActive: true },
+        { label: "Биллинг", href: `${base}/billing`, icon: CardIcon, requiresActive: true },
       ],
     },
   ];
@@ -90,55 +91,56 @@ function initials(email: string) {
 }
 
 function orgTypeLabel(type?: string, isPersonal?: boolean) {
-  if (isPersonal) {
-    return "Личный кабинет";
-  }
+  if (isPersonal) return "Личный кабинет";
   switch (type) {
     case "client_org":
-      return "Клиентская организация";
+      return "Эксплуатация";
     case "manufacturer":
       return "Производитель";
-    case "vendor":
-      return "Поставщик";
-    case "integrator":
-      return "Интегратор";
     default:
       return "Организация";
   }
 }
 
-export function DashboardShell({ children, activePath = "/app/dashboard", reviewBanner = false }: DashboardShellProps) {
+export function DashboardShell({
+  children,
+  activePath = base,
+  pageTitle = "Сводка",
+  reviewBanner = false,
+}: DashboardShellProps) {
   const [email, setEmail] = useState("user@asutport.ru");
-  const [orgName, setOrgName] = useState("Кабинет клиента");
-  const [orgLabel, setOrgLabel] = useState("Клиент");
+  const [orgName, setOrgName] = useState("Кабинет эксплуатации");
+  const [orgLabel, setOrgLabel] = useState("Эксплуатация");
   const [reviewStatus, setReviewStatus] = useState("");
+  const [openTickets, setOpenTickets] = useState(0);
   const avatar = useMemo(() => initials(email), [email]);
   const pendingReview = reviewStatus === "pending_review" || reviewBanner;
-  const navSections = useMemo(() => buildNavSections(pendingReview), [pendingReview]);
+  const navSections = useMemo(() => buildNavSections(pendingReview, openTickets), [pendingReview, openTickets]);
 
   useEffect(() => {
     const token = sessionStorage.getItem("asutport_access_token");
-    if (!token) {
-      return;
-    }
-    fetch("/api/v1/auth/me", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    if (!token) return;
+    fetch("/api/v1/auth/me", { headers: { Authorization: `Bearer ${token}` } })
       .then((response) => (response.ok ? response.json() : null))
       .then((body: MeResponse | null) => {
-        if (body?.data?.user?.email) {
-          setEmail(body.data.user.email);
-        }
+        if (body?.data?.user?.email) setEmail(body.data.user.email);
         if (body?.data?.org?.name) {
           setOrgName(body.data.org.name);
           setOrgLabel(orgTypeLabel(body.data.org.type, body.data.org.is_personal));
         }
-        if (body?.data?.org?.review_status) {
-          setReviewStatus(body.data.org.review_status);
-        }
+        if (body?.data?.org?.review_status) setReviewStatus(body.data.org.review_status);
       })
       .catch(() => undefined);
-  }, []);
+
+    if (!reviewBanner && reviewStatus !== "pending_review") {
+      fetch("/api/v1/client/dashboard", { headers: { Authorization: `Bearer ${token}` } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((body: { data?: { open_tickets_count?: number } } | null) => {
+          if (body?.data?.open_tickets_count != null) setOpenTickets(body.data.open_tickets_count);
+        })
+        .catch(() => undefined);
+    }
+  }, [reviewBanner, reviewStatus]);
 
   function signOut() {
     sessionStorage.removeItem("asutport_access_token");
@@ -156,7 +158,7 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
           <div className="min-w-0">
             <span className="block truncate text-sm font-medium text-[#18212f]">ASUTPORT</span>
             <span className="mt-1 inline-flex rounded border border-[#d7d2ca] bg-[#ebe9e4] px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-[#5f6b7a]">
-              Client
+              Эксплуатация
             </span>
           </div>
         </div>
@@ -170,11 +172,8 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
               <ul className="space-y-px">
                 {section.items.map((item) => {
                   const Icon = item.icon;
-                  const href = item.href;
-                  const isActive =
-                    activePath === href ||
-                    (item.label === "Dashboard" && activePath === "/app/dashboard");
-                  const disabled = pendingReview && item.href.startsWith("#");
+                  const isActive = activePath === item.href || (item.href === base && activePath === base);
+                  const disabled = pendingReview && item.requiresActive;
                   const className = isActive
                     ? "flex items-center gap-2 rounded-md bg-[#ebe9e4] px-3 py-[7px] font-medium text-[#18212f]"
                     : disabled
@@ -194,7 +193,7 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
                           ) : null}
                         </span>
                       ) : (
-                        <Link href={href} className={className}>
+                        <Link href={item.href} className={className}>
                           <Icon />
                           <span className="flex-1 truncate">{item.label}</span>
                           {item.badge ? (
@@ -237,30 +236,20 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
             ) : (
               <>
                 <span className="flex items-center gap-2 font-semibold text-[#6d4a1f]">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#ba7517]" />
-                  Профиль установки
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#3b6d11]" />
+                  Организация активна
                 </span>
-                <span className="mt-1 block truncate pl-3.5 text-[10px] text-[#9f7a3b]">
-                  Заполните продукты и версии
-                </span>
+                <Link href={`${base}/installation`} className="mt-1 block truncate pl-3.5 text-[10px] text-[#9f7a3b] underline">
+                  Заполнить профиль установки
+                </Link>
               </>
             )}
           </div>
 
           <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-[#e5e1da] pt-2">
-            <button
-              type="button"
-              onClick={signOut}
-              className="text-[11px] text-[#8a857d] transition-colors hover:text-[#18212f]"
-            >
+            <button type="button" onClick={signOut} className="text-[11px] text-[#8a857d] hover:text-[#18212f]">
               Выйти
             </button>
-            <Link
-              href="/app/register"
-              className="rounded-full border border-[#b5d4f4] bg-[#e6f1fb] px-2 py-0.5 text-[10px] font-semibold text-[#185fa5]"
-            >
-              Пригласить
-            </Link>
           </div>
         </div>
       </aside>
@@ -269,27 +258,29 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
         <header className="sticky top-0 z-10 flex h-[52px] items-center justify-between border-b border-[#dedbd3] bg-[#f3f2ef] px-7">
           <div>
             <span className="text-[15px] font-medium text-[#18212f]">{orgName}</span>
-            <span className="ml-2 text-[12px] text-[#8a857d]">/ Dashboard</span>
+            <span className="ml-2 text-[12px] text-[#8a857d]">/ {pageTitle}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="#agent"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#18212f] px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90"
-            >
-              <PlusIcon />
-              Новый вопрос
-            </Link>
-          </div>
+          {!pendingReview ? (
+            <div className="flex items-center gap-2">
+              <Link
+                href={`${base}/tickets`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#18212f] px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90"
+              >
+                <PlusIcon />
+                Новое обращение
+              </Link>
+            </div>
+          ) : null}
         </header>
 
         <main className="max-w-6xl p-7 text-[13px]">
-          {pendingReview && activePath === "/app/dashboard" ? (
+          {pendingReview && activePath === base ? (
             <div className="mb-6 rounded-lg border border-[#e8d9b3] bg-[#f6f0df] px-4 py-3 text-[13px] text-[#6d4a1f]">
               Организация ожидает проверки платформой.{" "}
               <Link href={onboardingPath} className="font-medium underline">
                 Откройте «Статус компании»
               </Link>{" "}
-              и приложите подтверждающие документы. Раздел «Поддержка» станет доступен после активации.
+              и приложите подтверждающие документы. Разделы поддержки откроются после активации.
             </div>
           ) : null}
           {children}
@@ -301,16 +292,7 @@ export function DashboardShell({ children, activePath = "/app/dashboard", review
 
 function IconBase({ children }: { children: ReactNode }) {
   return (
-    <svg
-      className="h-3.5 w-3.5 shrink-0 opacity-70"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
+    <svg className="h-3.5 w-3.5 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       {children}
     </svg>
   );
@@ -327,49 +309,16 @@ function LogoIcon() {
     </svg>
   );
 }
-function DashboardIcon() {
-  return <IconBase><path d="M4 5h7v6H4z" /><path d="M13 5h7v14h-7z" /><path d="M4 13h7v6H4z" /></IconBase>;
-}
-function SparkIcon() {
-  return <IconBase><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></IconBase>;
-}
-function TicketIcon() {
-  return <IconBase><path d="M4 7a2 2 0 0 1 2-2h12v4a2 2 0 0 0 0 4v4H6a2 2 0 0 1-2-2v-4a2 2 0 0 0 0-4Z" /></IconBase>;
-}
-function ClockIcon() {
-  return <IconBase><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></IconBase>;
-}
-function BookIcon() {
-  return <IconBase><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z" /></IconBase>;
-}
-function FactoryIcon() {
-  return <IconBase><path d="M3 21h18" /><path d="M5 21V9l5 3V9l5 3V5h4v16" /></IconBase>;
-}
-function BoxesIcon() {
-  return <IconBase><path d="m7 8 5-3 5 3-5 3z" /><path d="m7 16 5-3 5 3-5 3z" /><path d="m2 12 5-3 5 3-5 3z" /></IconBase>;
-}
-function FileIcon() {
-  return <IconBase><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></IconBase>;
-}
-function UsersIcon() {
-  return <IconBase><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" /><circle cx="9.5" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /></IconBase>;
-}
-function ShieldIcon() {
-  return <IconBase><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /></IconBase>;
-}
-function StatusIcon() {
-  return (
-    <IconBase>
-      <path d="M4 21h16" />
-      <path d="M6 21V7l6-4 6 4v14" />
-      <path d="M10 11h4" />
-      <path d="M10 15h4" />
-    </IconBase>
-  );
-}
-function CardIcon() {
-  return <IconBase><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></IconBase>;
-}
-function PlusIcon() {
-  return <IconBase><path d="M12 5v14" /><path d="M5 12h14" /></IconBase>;
-}
+function DashboardIcon() { return <IconBase><path d="M4 5h7v6H4z" /><path d="M13 5h7v14h-7z" /><path d="M4 13h7v6H4z" /></IconBase>; }
+function SparkIcon() { return <IconBase><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></IconBase>; }
+function TicketIcon() { return <IconBase><path d="M4 7a2 2 0 0 1 2-2h12v4a2 2 0 0 0 0 4v4H6a2 2 0 0 1-2-2v-4a2 2 0 0 0 0-4Z" /></IconBase>; }
+function ClockIcon() { return <IconBase><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></IconBase>; }
+function BookIcon() { return <IconBase><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z" /></IconBase>; }
+function FactoryIcon() { return <IconBase><path d="M3 21h18" /><path d="M5 21V9l5 3V9l5 3V5h4v16" /></IconBase>; }
+function BoxesIcon() { return <IconBase><path d="m7 8 5-3 5 3-5 3z" /><path d="m7 16 5-3 5 3-5 3z" /><path d="m2 12 5-3 5 3-5 3z" /></IconBase>; }
+function FileIcon() { return <IconBase><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></IconBase>; }
+function UsersIcon() { return <IconBase><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" /><circle cx="9.5" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /></IconBase>; }
+function ShieldIcon() { return <IconBase><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /></IconBase>; }
+function StatusIcon() { return <IconBase><path d="M4 21h16" /><path d="M6 21V7l6-4 6 4v14" /><path d="M10 11h4" /><path d="M10 15h4" /></IconBase>; }
+function CardIcon() { return <IconBase><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></IconBase>; }
+function PlusIcon() { return <IconBase><path d="M12 5v14" /><path d="M5 12h14" /></IconBase>; }

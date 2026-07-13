@@ -65,7 +65,7 @@ func (h *TicketHandler) UploadAttachment(w http.ResponseWriter, r *http.Request)
 	if err != nil || ticket == nil {
 		return
 	}
-	if err := h.ensureOnboardingAccess(w, r, ticket, p); err != nil {
+	if err := h.ensureTicketWriteAccess(w, r, ticket, p); err != nil {
 		return
 	}
 
@@ -167,7 +167,7 @@ func (h *TicketHandler) PostMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil || ticket == nil {
 		return
 	}
-	if err := h.ensureOnboardingAccess(w, r, ticket, p); err != nil {
+	if err := h.ensureTicketWriteAccess(w, r, ticket, p); err != nil {
 		return
 	}
 	var req postMessageReq
@@ -211,7 +211,7 @@ func (h *TicketHandler) PresignAttachment(w http.ResponseWriter, r *http.Request
 	if err != nil || ticket == nil {
 		return
 	}
-	if err := h.ensureOnboardingAccess(w, r, ticket, p); err != nil {
+	if err := h.ensureTicketWriteAccess(w, r, ticket, p); err != nil {
 		return
 	}
 	var req presignAttachmentReq
@@ -257,7 +257,7 @@ func (h *TicketHandler) CompleteAttachment(w http.ResponseWriter, r *http.Reques
 	if err != nil || ticket == nil {
 		return
 	}
-	if err := h.ensureOnboardingAccess(w, r, ticket, p); err != nil {
+	if err := h.ensureTicketWriteAccess(w, r, ticket, p); err != nil {
 		return
 	}
 	event, err := h.tickets.CompleteAttachment(r.Context(), ticket, attachmentID, p.UserID, p.OrgID, p.IsSuperAdmin())
@@ -407,21 +407,24 @@ func (h *TicketHandler) loadAuthorizedTicket(w http.ResponseWriter, r *http.Requ
 	return ticket, nil
 }
 
-func (h *TicketHandler) ensureOnboardingAccess(w http.ResponseWriter, r *http.Request, ticket *models.Ticket, p *auth.Principal) error {
+func (h *TicketHandler) ensureTicketWriteAccess(w http.ResponseWriter, r *http.Request, ticket *models.Ticket, p *auth.Principal) error {
 	if p.IsSuperAdmin() {
 		return nil
-	}
-	if ticket.Type != "onboarding" {
-		WriteError(w, http.StatusForbidden, "FORBIDDEN", "ticket type not allowed")
-		return errors.New("forbidden")
 	}
 	org, err := h.orgs.GetByID(r.Context(), p.OrgID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not load organization")
 		return err
 	}
-	if org.ReviewStatus != "pending_review" && ticket.Status != "closed" {
-		WriteError(w, http.StatusForbidden, "FORBIDDEN", "organization is not pending review")
+	if ticket.Type == "onboarding" {
+		if org.ReviewStatus != "pending_review" && ticket.Status != "closed" {
+			WriteError(w, http.StatusForbidden, "FORBIDDEN", "organization is not pending review")
+			return errors.New("forbidden")
+		}
+		return nil
+	}
+	if org.ReviewStatus != "active" {
+		WriteError(w, http.StatusForbidden, "FORBIDDEN", "организация ещё не активирована")
 		return errors.New("forbidden")
 	}
 	return nil
@@ -448,6 +451,9 @@ func ticketDTO(t *models.Ticket, attachments []models.TicketAttachment) map[stri
 	}
 	if t.InstallationID != nil {
 		dto["installation_id"] = t.InstallationID.String()
+	}
+	if t.SLAReactionDeadline != nil {
+		dto["sla_reaction_deadline"] = t.SLAReactionDeadline
 	}
 	if t.BallOwnerOrgID != nil {
 		dto["ball_owner_org_id"] = t.BallOwnerOrgID.String()

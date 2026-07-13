@@ -174,21 +174,72 @@ type RegistrationVerification struct {
 }
 
 type Ticket struct {
+	ID                   uuid.UUID
+	ClientOrgID          uuid.UUID
+	InstallationID       *uuid.UUID
+	Type                 string
+	Priority             string
+	Status               string
+	BallOwnerOrgID       *uuid.UUID
+	Subject              string
+	SLAReactionDeadline  *time.Time
+	CreatedByUserID      *uuid.UUID
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	ClientOrgName        string
+	ClientOrgType        string
+	ClientOrgINN         string
+	ClientReviewStatus   string
+}
+
+type Installation struct {
+	ID                    uuid.UUID
+	ClientOrgID           uuid.UUID
+	Name                  string
+	SiteAddress           string
+	Criticality           string
+	SnapshotAllowed       bool
+	EmergencyContactName  string
+	EmergencyContactPhone string
+	Environment           []byte
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+type InstallationProduct struct {
 	ID               uuid.UUID
-	ClientOrgID      uuid.UUID
-	InstallationID   *uuid.UUID
-	Type             string
-	Priority         string
-	Status           string
-	BallOwnerOrgID   *uuid.UUID
-	Subject          string
-	CreatedByUserID  *uuid.UUID
+	InstallationID   uuid.UUID
+	ManufacturerName string
+	ProductName      string
+	Kind             string
+	Version          string
+	Notes            string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
-	ClientOrgName    string
-	ClientOrgType    string
-	ClientOrgINN     string
-	ClientReviewStatus string
+}
+
+type SupplyRecord struct {
+	ID                    uuid.UUID
+	InstallationProductID uuid.UUID
+	SerialOrLicense       string
+	SupplierName          string
+	IntegratorName        string
+	PurchaseDate          *time.Time
+	WarrantyUntil         *time.Time
+	ContractRef           string
+	VerifyStatus          string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+type ClientDashboardSummary struct {
+	InstallationsCount int
+	OpenTicketsCount   int
+	SLAActiveCount     int
+	CoveragePercent    int
+	ProfileComplete    bool
+	ProductsCount      int
+	SupplyRecordsCount int
 }
 
 type TicketEvent struct {

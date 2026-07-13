@@ -89,12 +89,14 @@ func main() {
 	ticketRepo := repository.NewTicketRepo(pool)
 	emailLoader := email.NewLoader(adminSettings, cfg.JWTSecret)
 	emailNotify := email.NewNotifier(emailLoader)
+	installations := repository.NewInstallationRepo(pool)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
 	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, s3Loader, emailNotify)
 
 	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, emailNotify, ticketSvc, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
 	ticketH := handler.NewTicketHandler(ticketSvc, orgs)
+	clientH := handler.NewClientHandler(installations, ticketSvc, orgs)
 	adminOrgH := handler.NewAdminOrgHandler(adminOrgs, orgs)
 	adminUserH := handler.NewAdminUserHandler(adminUsers)
 	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
@@ -140,6 +142,21 @@ func main() {
 				ListOnboardingAdmin: ticketH.ListOnboardingAdmin,
 				ApproveOrg:          ticketH.ApproveOrg,
 				RejectOrg:           ticketH.RejectOrg,
+			},
+			Client: server.ClientHandlers{
+				Dashboard:          clientH.Dashboard,
+				ListInstallations:  clientH.ListInstallations,
+				CreateInstallation: clientH.CreateInstallation,
+				UpdateInstallation: clientH.UpdateInstallation,
+				ListProducts:       clientH.ListProducts,
+				CreateProduct:      clientH.CreateProduct,
+				UpdateProduct:      clientH.UpdateProduct,
+				DeleteProduct:      clientH.DeleteProduct,
+				ListSupplyRecords:  clientH.ListSupplyRecords,
+				CreateSupplyRecord: clientH.CreateSupplyRecord,
+				DeleteSupplyRecord: clientH.DeleteSupplyRecord,
+				ListTickets:        clientH.ListTickets,
+				CreateTicket:       clientH.CreateTicket,
 			},
 			AdminOrg: server.AdminOrgHandlers{
 				List:         adminOrgH.List,

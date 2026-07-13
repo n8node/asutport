@@ -32,7 +32,7 @@ export default function DashboardOnboardingPage() {
   }, []);
 
   return (
-    <DashboardShell activePath="/app/dashboard/onboarding" reviewBanner>
+    <DashboardShell activePath="/app/dashboard/onboarding" pageTitle="Статус компании" reviewBanner>
       <div className="mb-6">
         <h1 className="text-2xl font-medium tracking-tight text-[#18212f]">Статус компании</h1>
         <p className="mt-1 text-sm text-[#8a857d]">

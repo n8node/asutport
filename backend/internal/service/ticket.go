@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -134,6 +135,90 @@ func (s *TicketService) GetByID(ctx context.Context, ticketID uuid.UUID) (*model
 
 func (s *TicketService) ListOnboarding(ctx context.Context, reviewStatus string, limit, offset int) ([]models.Ticket, int, error) {
 	return s.tickets.ListOnboarding(ctx, reviewStatus, limit, offset)
+}
+
+func (s *TicketService) ListByClientOrg(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]models.Ticket, int, error) {
+	return s.tickets.ListByClientOrg(ctx, orgID, limit, offset)
+}
+
+func (s *TicketService) CountOpenByClientOrg(ctx context.Context, orgID uuid.UUID) (int, error) {
+	return s.tickets.CountOpenByClientOrg(ctx, orgID)
+}
+
+func (s *TicketService) CountSLAActiveByClientOrg(ctx context.Context, orgID uuid.UUID) (int, error) {
+	return s.tickets.CountSLAActiveByClientOrg(ctx, orgID)
+}
+
+type CreateSupportTicketInput struct {
+	ClientOrgID     uuid.UUID
+	InstallationID  *uuid.UUID
+	Subject         string
+	Type            string
+	Priority        string
+	CreatedByUserID uuid.UUID
+	InitialText     string
+}
+
+func (s *TicketService) CreateSupportTicket(ctx context.Context, in CreateSupportTicketInput) (*models.Ticket, error) {
+	in.Subject = strings.TrimSpace(in.Subject)
+	if in.Subject == "" {
+		return nil, fmt.Errorf("subject is required")
+	}
+	ticketType := normalizeSupportTicketType(in.Type)
+	priority := normalizeTicketPriority(in.Priority)
+	deadline := slaReactionDeadline(priority)
+	ticket, err := s.tickets.Create(ctx, repository.TicketCreateParams{
+		ClientOrgID:         in.ClientOrgID,
+		InstallationID:      in.InstallationID,
+		Type:                ticketType,
+		Priority:            priority,
+		Status:              "open",
+		BallOwnerOrgID:      nil,
+		Subject:             in.Subject,
+		CreatedByUserID:     in.CreatedByUserID,
+		SLAReactionDeadline: &deadline,
+	})
+	if err != nil {
+		return nil, err
+	}
+	text := strings.TrimSpace(in.InitialText)
+	if text == "" {
+		text = in.Subject
+	}
+	if _, err := s.tickets.AddEvent(ctx, ticket.ID, "message", &in.CreatedByUserID, &in.ClientOrgID, repository.EventPayloadText(text)); err != nil {
+		return nil, err
+	}
+	return s.tickets.GetByID(ctx, ticket.ID)
+}
+
+func normalizeSupportTicketType(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "typical", "defect", "warranty", "application", "cross_vendor":
+		return strings.TrimSpace(raw)
+	default:
+		return "typical"
+	}
+}
+
+func normalizeTicketPriority(raw string) string {
+	switch strings.TrimSpace(raw) {
+	case "emergency", "degraded", "question":
+		return strings.TrimSpace(raw)
+	default:
+		return "question"
+	}
+}
+
+func slaReactionDeadline(priority string) time.Time {
+	now := time.Now().UTC()
+	switch priority {
+	case "emergency":
+		return now.Add(30 * time.Minute)
+	case "degraded":
+		return now.Add(2 * time.Hour)
+	default:
+		return now.Add(8 * time.Hour)
+	}
 }
 
 func (s *TicketService) ListEvents(ctx context.Context, ticketID uuid.UUID) ([]models.TicketEvent, error) {
