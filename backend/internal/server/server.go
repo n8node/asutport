@@ -15,6 +15,7 @@ type Handlers struct {
 	Auth     AuthHandlers
 	Org      OrgHandlers
 	APIKey   APIKeyHandlers
+	Admin    AdminHandlers
 	AuthDeps appmw.AuthDeps
 	LoginRL  *appmw.LoginRateLimiter
 }
@@ -39,6 +40,16 @@ type APIKeyHandlers struct {
 	List   http.HandlerFunc
 	Create http.HandlerFunc
 	Revoke http.HandlerFunc
+}
+
+type AdminHandlers struct {
+	S3Get       http.HandlerFunc
+	S3Patch     http.HandlerFunc
+	S3Test      http.HandlerFunc
+	S3CorsHints http.HandlerFunc
+	SMTPGet     http.HandlerFunc
+	SMTPPatch   http.HandlerFunc
+	SMTPTest    http.HandlerFunc
 }
 
 type Options struct {
@@ -100,6 +111,13 @@ func New(opts Options) http.Handler {
 				r.Use(appmw.RequireSuperAdmin)
 				r.Get("/admin/orgs", h.Org.AdminList)
 				r.Patch("/admin/orgs/{orgID}/review", h.Org.AdminUpdateReview)
+				r.Get("/admin/settings/s3", h.Admin.S3Get)
+				r.Patch("/admin/settings/s3", h.Admin.S3Patch)
+				r.Post("/admin/settings/s3/test", h.Admin.S3Test)
+				r.Get("/admin/settings/s3/cors-hints", h.Admin.S3CorsHints)
+				r.Get("/admin/settings/smtp", h.Admin.SMTPGet)
+				r.Patch("/admin/settings/smtp", h.Admin.SMTPPatch)
+				r.Post("/admin/settings/smtp/test", h.Admin.SMTPTest)
 			})
 
 			r.Route("/orgs/{orgID}/api-keys", func(r chi.Router) {

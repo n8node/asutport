@@ -86,11 +86,13 @@ func main() {
 	members := repository.NewOrgMemberRepo(pool)
 	sessions := repository.NewSessionRepo(pool)
 	apiKeys := repository.NewAPIKeyRepo(pool)
+	adminSettings := repository.NewAdminSettingsRepo(pool)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
 
 	authH := handler.NewAuthHandler(users, orgs, members, sessions, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
 	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
+	adminSettingsH := handler.NewAdminSettingsHandler(cfg, adminSettings)
 
 	authDeps := middleware.AuthDeps{
 		Cfg:      cfg,
@@ -125,6 +127,15 @@ func main() {
 				List:   keyH.List,
 				Create: keyH.Create,
 				Revoke: keyH.Revoke,
+			},
+			Admin: server.AdminHandlers{
+				S3Get:       adminSettingsH.S3Get,
+				S3Patch:     adminSettingsH.S3Patch,
+				S3Test:      adminSettingsH.S3Test,
+				S3CorsHints: adminSettingsH.S3CorsHints,
+				SMTPGet:     adminSettingsH.SMTPGet,
+				SMTPPatch:   adminSettingsH.SMTPPatch,
+				SMTPTest:    adminSettingsH.SMTPTest,
 			},
 		},
 		CORSOrigins: []string{"*"},

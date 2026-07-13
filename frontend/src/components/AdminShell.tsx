@@ -65,6 +65,7 @@ const navSections: AdminNavSection[] = [
       { label: "Workers", href: "#workers", icon: CpuIcon, badge: "—", tone: "yellow" },
       { label: "LLM costs", href: "#llm", icon: SparkIcon },
       { label: "Object storage (S3)", href: "#s3", icon: CloudIcon },
+      { label: "Email / SMTP", href: "#smtp", icon: MailIcon },
     ],
   },
   {
@@ -319,6 +320,9 @@ function AuditIcon() {
 }
 function HealthIcon() {
   return <IconBase><path d="M22 12h-4l-3 7L9 5l-3 7H2" /></IconBase>;
+}
+function MailIcon() {
+  return <IconBase><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></IconBase>;
 }
 function ChevronLeftIcon() {
   return <IconBase><path d="m15 18-6-6 6-6" /></IconBase>;

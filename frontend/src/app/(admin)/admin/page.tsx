@@ -1,5 +1,6 @@
 import { AdminShell } from "@/components/AdminShell";
 import { AdminOrgRequests } from "@/components/AdminOrgRequests";
+import { AdminSettingsPanels } from "@/components/AdminSettingsPanels";
 import type { ReactNode } from "react";
 
 export default function AdminPage() {
@@ -71,11 +72,15 @@ export default function AdminPage() {
           <Panel title="Usage by contour (30d)">
             <p className="text-[13px] text-[#6f6a62]">Нет данных за последние 30 дней.</p>
           </Panel>
-          <Panel title="LLM / S3">
+          <Panel title="LLM">
             <p className="text-[13px] text-[#6f6a62]">
-              Контроль расходов ИИ и состояния S3 будет подключён после пайплайна документации.
+              Контроль расходов ИИ будет подключён после пайплайна документации.
             </p>
           </Panel>
+        </div>
+
+        <div className="mt-6">
+          <AdminSettingsPanels />
         </div>
       </div>
     </AdminShell>

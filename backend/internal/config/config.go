@@ -29,12 +29,12 @@ type Config struct {
 	S3SecretKey    string `env:"S3_SECRET_KEY" envDefault:""`
 	S3UsePathStyle bool   `env:"S3_USE_PATH_STYLE" envDefault:"true"`
 
-	OpenRouterAPIKey         string `env:"OPENROUTER_API_KEY" envDefault:""`
-	OpenRouterModelQualify   string `env:"OPENROUTER_MODEL_QUALIFY" envDefault:"google/gemini-2.5-flash"`
-	OpenRouterModelAnswer    string `env:"OPENROUTER_MODEL_ANSWER" envDefault:"anthropic/claude-sonnet-4"`
-	OpenRouterModelVision    string `env:"OPENROUTER_MODEL_VISION" envDefault:"google/gemini-2.5-pro"`
-	OpenRouterModelKB        string `env:"OPENROUTER_MODEL_KB" envDefault:"anthropic/claude-sonnet-4"`
-	OpenRouterModelEmbed     string `env:"OPENROUTER_MODEL_EMBED" envDefault:"openai/text-embedding-3-large"`
+	OpenRouterAPIKey       string `env:"OPENROUTER_API_KEY" envDefault:""`
+	OpenRouterModelQualify string `env:"OPENROUTER_MODEL_QUALIFY" envDefault:"google/gemini-2.5-flash"`
+	OpenRouterModelAnswer  string `env:"OPENROUTER_MODEL_ANSWER" envDefault:"anthropic/claude-sonnet-4"`
+	OpenRouterModelVision  string `env:"OPENROUTER_MODEL_VISION" envDefault:"google/gemini-2.5-pro"`
+	OpenRouterModelKB      string `env:"OPENROUTER_MODEL_KB" envDefault:"anthropic/claude-sonnet-4"`
+	OpenRouterModelEmbed   string `env:"OPENROUTER_MODEL_EMBED" envDefault:"openai/text-embedding-3-large"`
 
 	Domain       string `env:"DOMAIN" envDefault:"asutport.ru"`
 	CertbotEmail string `env:"CERTBOT_EMAIL" envDefault:"erman.ai@yandex.ru"`
