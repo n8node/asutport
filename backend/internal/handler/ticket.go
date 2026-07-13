@@ -2,10 +2,13 @@ package handler
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -65,18 +68,10 @@ func (h *TicketHandler) UploadAttachment(w http.ResponseWriter, r *http.Request)
 	if err := h.ensureOnboardingAccess(w, r, ticket, p); err != nil {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, service.MaxAttachmentBytes()+1<<20)
-	if err := r.ParseMultipartForm(service.MaxAttachmentBytes() + 1<<20); err != nil {
-		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "file too large or invalid form")
-		return
-	}
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "file is required")
-		return
-	}
-	defer file.Close()
-	data, err := readUploadFile(file, service.MaxAttachmentBytes())
+
+	maxBody := service.MaxUploadBodyBytes()
+	r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+	filename, contentType, data, err := parseUploadAttachmentRequest(r, service.MaxAttachmentBytes())
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", userFacingErr(err))
 		return
@@ -87,8 +82,8 @@ func (h *TicketHandler) UploadAttachment(w http.ResponseWriter, r *http.Request)
 		p.UserID,
 		p.OrgID,
 		p.IsSuperAdmin(),
-		header.Filename,
-		header.Header.Get("Content-Type"),
+		filename,
+		contentType,
 		bytes.NewReader(data),
 		int64(len(data)),
 	)
@@ -503,6 +498,81 @@ func eventDTO(e models.TicketEvent) map[string]any {
 	return dto
 }
 
+func parseUploadAttachmentRequest(r *http.Request, maxBytes int64) (string, string, []byte, error) {
+	ct := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		return parseMultipartUpload(r, maxBytes)
+	}
+	return parseJSONUpload(r, maxBytes)
+}
+
+type uploadAttachmentJSONReq struct {
+	Filename      string `json:"filename"`
+	ContentType   string `json:"content_type"`
+	ContentBase64 string `json:"content_base64"`
+}
+
+func parseJSONUpload(r *http.Request, maxBytes int64) (string, string, []byte, error) {
+	var req uploadAttachmentJSONReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return "", "", nil, fmt.Errorf("invalid json body")
+	}
+	raw := strings.TrimSpace(req.ContentBase64)
+	if raw == "" {
+		return "", "", nil, fmt.Errorf("file is required")
+	}
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("invalid file encoding")
+	}
+	if len(data) == 0 {
+		return "", "", nil, fmt.Errorf("file is empty")
+	}
+	if int64(len(data)) > maxBytes {
+		return "", "", nil, fmt.Errorf("file too large")
+	}
+	filename := strings.TrimSpace(req.Filename)
+	if filename == "" {
+		filename = "attachment"
+	}
+	return filename, req.ContentType, data, nil
+}
+
+func parseMultipartUpload(r *http.Request, maxBytes int64) (string, string, []byte, error) {
+	_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil {
+		return "", "", nil, fmt.Errorf("invalid multipart form")
+	}
+	boundary, ok := params["boundary"]
+	if !ok || boundary == "" {
+		return "", "", nil, fmt.Errorf("invalid multipart form")
+	}
+	mr := multipart.NewReader(r.Body, boundary)
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", "", nil, fmt.Errorf("invalid multipart form")
+		}
+		if part.FormName() != "file" {
+			_, _ = io.Copy(io.Discard, part)
+			continue
+		}
+		filename := strings.TrimSpace(part.FileName())
+		if filename == "" {
+			filename = "attachment"
+		}
+		data, err := readUploadFile(part, maxBytes)
+		if err != nil {
+			return "", "", nil, err
+		}
+		return filename, part.Header.Get("Content-Type"), data, nil
+	}
+	return "", "", nil, fmt.Errorf("file is required")
+}
+
 func readUploadFile(r io.Reader, maxBytes int64) ([]byte, error) {
 	limited := io.LimitReader(r, maxBytes+1)
 	data, err := io.ReadAll(limited)
@@ -533,7 +603,10 @@ func userFacingErr(err error) string {
 		strings.Contains(msg, "pending review"),
 		strings.Contains(msg, "not configured"),
 		strings.Contains(msg, "upload failed"),
-		strings.Contains(msg, "could not read"):
+		strings.Contains(msg, "storage upload failed"),
+		strings.Contains(msg, "could not read"),
+		strings.Contains(msg, "encoding"),
+		strings.Contains(msg, "multipart"):
 		return msg
 	default:
 		return "request failed"

@@ -127,18 +127,22 @@ export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadPro
     setBusy(true);
     setError("");
     try {
-      const form = new FormData();
-      form.append("file", file);
+      const contentBase64 = await fileToBase64(file);
       const response = await authFetch(`/api/v1/tickets/${ticketID}/attachments/upload`, {
         method: "POST",
-        body: form,
+        body: JSON.stringify({
+          filename: file.name,
+          content_type: inferContentType(file),
+          content_base64: contentBase64,
+        }),
       });
       const body = (await response.json()) as {
         data?: { event?: TicketEvent; ticket?: Ticket; attachments?: TicketAttachment[] };
-        error?: { message?: string };
+        error?: { message?: string; code?: string };
       };
       if (!response.ok) {
-        setError(body.error?.message || "Не удалось прикрепить файл");
+        const details = [body.error?.message, body.error?.code].filter(Boolean).join(" · ");
+        setError(details || "Не удалось прикрепить файл");
         return;
       }
       if (body.data?.ticket) {
@@ -150,6 +154,8 @@ export function TicketThread({ ticketID, mode, onTicketUpdate }: TicketThreadPro
       } else {
         await load();
       }
+    } catch {
+      setError("Не удалось прочитать файл на устройстве");
     } finally {
       setBusy(false);
       if (fileRef.current) {
@@ -366,4 +372,38 @@ function formatDate(value: string) {
   } catch {
     return value;
   }
+}
+
+function inferContentType(file: File) {
+  if (file.type) {
+    return file.type;
+  }
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".pdf")) {
+    return "application/pdf";
+  }
+  if (name.endsWith(".png")) {
+    return "image/png";
+  }
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+  return "";
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("read failed"));
+        return;
+      }
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
 }

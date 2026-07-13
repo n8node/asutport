@@ -24,6 +24,11 @@ func MaxAttachmentBytes() int64 {
 	return maxAttachmentBytes
 }
 
+func MaxUploadBodyBytes() int64 {
+	// Base64 JSON payloads are ~4/3 of raw file size.
+	return maxAttachmentBytes*4/3 + (2 << 20)
+}
+
 var allowedAttachmentTypes = map[string]bool{
 	"application/pdf": true,
 	"image/png":       true,
@@ -206,7 +211,8 @@ func (s *TicketService) PresignAttachment(
 		return nil, fmt.Errorf("invalid file size")
 	}
 	attID := uuid.New()
-	key := s3store.TicketAttachmentKey(ticket.ID.String(), attID.String(), filename)
+	storageFilename := sanitizeS3StorageName(filename)
+	key := s3store.TicketAttachmentKey(ticket.ID.String(), attID.String(), storageFilename)
 	att, err := s.tickets.CreateAttachment(ctx, models.TicketAttachment{
 		TicketID:         ticket.ID,
 		S3Key:            key,
@@ -258,7 +264,8 @@ func (s *TicketService) UploadAttachment(
 		return nil, fmt.Errorf("invalid file size")
 	}
 	attID := uuid.New()
-	key := s3store.TicketAttachmentKey(ticket.ID.String(), attID.String(), filename)
+	storageFilename := sanitizeS3StorageName(filename)
+	key := s3store.TicketAttachmentKey(ticket.ID.String(), attID.String(), storageFilename)
 	att, err := s.tickets.CreateAttachment(ctx, models.TicketAttachment{
 		ID:               attID,
 		TicketID:         ticket.ID,
@@ -274,7 +281,7 @@ func (s *TicketService) UploadAttachment(
 		return nil, err
 	}
 	if err := s.s3.PutObject(ctx, key, ct, body, sizeBytes); err != nil {
-		return nil, fmt.Errorf("upload failed")
+		return nil, fmt.Errorf("storage upload failed")
 	}
 	return s.completeAttachmentRecord(ctx, ticket, att, userID, orgID, isSuperAdmin)
 }
@@ -437,6 +444,28 @@ func normalizeAttachmentContentType(filename, contentType string) (string, error
 		return "", fmt.Errorf("unsupported file type")
 	}
 	return ct, nil
+}
+
+func sanitizeS3StorageName(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	stem := strings.TrimSuffix(filename, filepath.Ext(filename))
+	var b strings.Builder
+	for _, r := range stem {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteRune('_')
+		}
+	}
+	out := b.String()
+	if out == "" {
+		out = "attachment"
+	}
+	if ext == "" {
+		return out
+	}
+	return out + ext
 }
 
 func (s *TicketService) notifyOnboardingCreated(ctx context.Context, org *models.Organization, ticket *models.Ticket, userID uuid.UUID) error {
