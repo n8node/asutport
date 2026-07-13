@@ -95,6 +95,9 @@ func (r *RegistrationVerificationRepo) CleanupRegistration(ctx context.Context, 
 	if _, err := tx.Exec(ctx, `DELETE FROM registration_verifications WHERE user_id = $1`, userID); err != nil {
 		return fmt.Errorf("delete verifications: %w", err)
 	}
+	if _, err := tx.Exec(ctx, `UPDATE organizations SET onboarding_ticket_id = NULL WHERE id = $1`, orgID); err != nil {
+		return fmt.Errorf("clear onboarding ticket: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, orgID); err != nil {
 		return fmt.Errorf("delete org: %w", err)
 	}

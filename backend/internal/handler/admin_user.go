@@ -109,6 +109,39 @@ func (h *AdminUserHandler) PatchActive(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *AdminUserHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	if !requireSuperAdmin(w, r) {
+		return
+	}
+	actor, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
+		return
+	}
+	userID, err := uuid.Parse(chi.URLParam(r, "userID"))
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid user id")
+		return
+	}
+	if err := h.users.DeletePermanent(r.Context(), userID, actor.UserID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, "NOT_FOUND", "user not found")
+			return
+		}
+		if errors.Is(err, repository.ErrForbidden) {
+			WriteError(w, http.StatusForbidden, "FORBIDDEN", "cannot delete this user")
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not delete user")
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
+			"deleted": true,
+		},
+	})
+}
+
 func (h *AdminUserHandler) RevokeSessions(w http.ResponseWriter, r *http.Request) {
 	if !requireSuperAdmin(w, r) {
 		return

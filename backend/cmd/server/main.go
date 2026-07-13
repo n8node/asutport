@@ -156,6 +156,7 @@ func main() {
 				Get:            adminUserH.Get,
 				PatchActive:    adminUserH.PatchActive,
 				RevokeSessions: adminUserH.RevokeSessions,
+				Delete:         adminUserH.Delete,
 			},
 			APIKey: server.APIKeyHandlers{
 				List:   keyH.List,

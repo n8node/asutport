@@ -63,6 +63,7 @@ type AdminUserHandlers struct {
 	Get            http.HandlerFunc
 	PatchActive    http.HandlerFunc
 	RevokeSessions http.HandlerFunc
+	Delete         http.HandlerFunc
 }
 
 type APIKeyHandlers struct {
@@ -160,6 +161,7 @@ func New(opts Options) http.Handler {
 				r.Get("/admin/users/{userID}", h.AdminUser.Get)
 				r.Patch("/admin/users/{userID}", h.AdminUser.PatchActive)
 				r.Post("/admin/users/{userID}/revoke-sessions", h.AdminUser.RevokeSessions)
+				r.Delete("/admin/users/{userID}", h.AdminUser.Delete)
 				r.Get("/admin/settings/s3", h.Admin.S3Get)
 				r.Patch("/admin/settings/s3", h.Admin.S3Patch)
 				r.Post("/admin/settings/s3/test", h.Admin.S3Test)

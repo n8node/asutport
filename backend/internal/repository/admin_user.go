@@ -169,6 +169,103 @@ func (r *AdminUserRepo) RevokeAllSessions(ctx context.Context, userID uuid.UUID)
 	return tag.RowsAffected(), nil
 }
 
+// DeletePermanent removes the user and sole-member organizations so the email can be reused.
+func (r *AdminUserRepo) DeletePermanent(ctx context.Context, userID, actorUserID uuid.UUID) error {
+	if userID == actorUserID {
+		return ErrForbidden
+	}
+
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, userID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+
+	var isSuperadmin bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM org_members WHERE user_id = $1 AND role = 'superadmin')`, userID,
+	).Scan(&isSuperadmin); err != nil {
+		return err
+	}
+	if isSuperadmin {
+		return ErrForbidden
+	}
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `SELECT org_id FROM org_members WHERE user_id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("list memberships: %w", err)
+	}
+	var orgIDs []uuid.UUID
+	for rows.Next() {
+		var orgID uuid.UUID
+		if err := rows.Scan(&orgID); err != nil {
+			rows.Close()
+			return err
+		}
+		orgIDs = append(orgIDs, orgID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	for _, orgID := range orgIDs {
+		var memberCount int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(*)::int FROM org_members WHERE org_id = $1`, orgID).Scan(&memberCount); err != nil {
+			return err
+		}
+		if memberCount <= 1 {
+			if err := deleteOrgCascadeTx(ctx, tx, orgID); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM org_members WHERE org_id = $1 AND user_id = $2`, orgID, userID); err != nil {
+			return fmt.Errorf("remove membership: %w", err)
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `UPDATE organizations SET reviewed_by = NULL WHERE reviewed_by = $1`, userID); err != nil {
+		return fmt.Errorf("clear reviewed_by: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM ticket_attachments WHERE uploaded_by_user_id = $1`, userID); err != nil {
+		return fmt.Errorf("delete ticket attachments: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ticket_events SET actor_user_id = NULL WHERE actor_user_id = $1`, userID); err != nil {
+		return fmt.Errorf("clear ticket events actor: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE tickets SET created_by_user_id = NULL WHERE created_by_user_id = $1`, userID); err != nil {
+		return fmt.Errorf("clear ticket creator: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM users WHERE id = $1`, userID); err != nil {
+		return fmt.Errorf("delete user: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+func deleteOrgCascadeTx(ctx context.Context, tx pgx.Tx, orgID uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `UPDATE organizations SET onboarding_ticket_id = NULL, reviewed_by = NULL WHERE id = $1`, orgID); err != nil {
+		return fmt.Errorf("clear org refs: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM registration_verifications WHERE org_id = $1`, orgID); err != nil {
+		return fmt.Errorf("delete verifications: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM organizations WHERE id = $1`, orgID); err != nil {
+		return fmt.Errorf("delete org: %w", err)
+	}
+	return nil
+}
+
 func (r *AdminUserRepo) membershipsForUsers(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID][]models.AdminUserMembership, error) {
 	q := `SELECT om.user_id, om.org_id, o.name, o.type::text, o.slug, om.role::text,
 		o.review_status::text, o.is_personal, o.is_active, o.inn, o.website, o.contact_phone, om.created_at

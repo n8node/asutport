@@ -219,6 +219,33 @@ export function AdminUsers() {
     }
   }
 
+  async function deleteUser(user: AdminUser) {
+    if (isSuperadminUser(user)) {
+      setMessage("Нельзя удалить учётную запись superadmin");
+      return;
+    }
+    const confirmed = window.confirm(
+      `Удалить пользователя ${user.email}?\n\nEmail освободится для повторной регистрации. Организации с одним участником будут удалены. Действие необратимо.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setActionBusy(true);
+    try {
+      const response = await authFetch(`/api/v1/admin/users/${user.id}`, { method: "DELETE" });
+      const body = (await response.json()) as { error?: { message?: string } };
+      if (!response.ok) {
+        setMessage(body.error?.message || "Не удалось удалить пользователя");
+        return;
+      }
+      setSelected(null);
+      setMessage(`Пользователь ${user.email} удалён`);
+      await load();
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   return (
     <div className="relative">
       <section className="overflow-hidden rounded-[12px] border border-[#dedbd3] bg-white">
@@ -601,6 +628,15 @@ export function AdminUsers() {
                 </button>
                 <button
                   type="button"
+                  disabled={actionBusy || isSuperadminUser(selected)}
+                  title={isSuperadminUser(selected) ? "Нельзя удалить superadmin" : undefined}
+                  className="rounded border border-[#e5484d] px-3 py-1.5 text-[12px] text-[#e5484d] hover:bg-red-50 disabled:opacity-50"
+                  onClick={() => void deleteUser(selected)}
+                >
+                  Удалить
+                </button>
+                <button
+                  type="button"
                   disabled
                   title="Будет доступно в фазе 8"
                   className="rounded border border-[#d7d2ca] px-3 py-1.5 text-[12px] text-[#8a857d] opacity-50"
@@ -730,6 +766,10 @@ function StatusPill({
       {children}
     </span>
   );
+}
+
+function isSuperadminUser(user: AdminUser) {
+  return user.memberships.some((m) => m.role === "superadmin");
 }
 
 function messengerOf(links: MessengerLink[], provider: "telegram" | "max") {
