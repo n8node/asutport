@@ -17,13 +17,22 @@ type User struct {
 }
 
 type Organization struct {
-	ID        uuid.UUID
-	Name      string
-	Type      string
-	Slug      string
-	IsActive  bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            uuid.UUID
+	Name          string
+	Type          string
+	Slug          string
+	IsActive      bool
+	LegalName     string
+	INN           string
+	Website       string
+	ContactPhone  string
+	ReviewComment string
+	IsPersonal    bool
+	ReviewStatus  string
+	ReviewedAt    *time.Time
+	ReviewedBy    *uuid.UUID
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 type OrgMember struct {
@@ -36,9 +45,11 @@ type OrgMember struct {
 
 type OrgMembership struct {
 	OrgMember
-	OrgName string
-	OrgType string
-	OrgSlug string
+	OrgName         string
+	OrgType         string
+	OrgSlug         string
+	OrgReviewStatus string
+	OrgIsPersonal   bool
 }
 
 type Session struct {

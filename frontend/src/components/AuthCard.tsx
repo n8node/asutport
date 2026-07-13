@@ -15,11 +15,47 @@ type TokenResponse = {
     access_token?: string;
     refresh_token?: string;
     role?: string;
+    org_type?: string;
+    review_status?: string;
   };
   error?: {
     message?: string;
   };
 };
+
+type AccountType = "client_personal" | "client_org" | "manufacturer" | "vendor" | "integrator";
+
+const accountTypes: Array<{
+  value: AccountType;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "client_personal",
+    label: "Мне нужна поддержка",
+    description: "Личный кабинет без привязки к организации.",
+  },
+  {
+    value: "client_org",
+    label: "Представляю эксплуатацию",
+    description: "Клиентская организация или предприятие.",
+  },
+  {
+    value: "manufacturer",
+    label: "Производитель",
+    description: "Заявка на подключение производителя.",
+  },
+  {
+    value: "vendor",
+    label: "Поставщик / вендор",
+    description: "Дилер, поставщик, продавец лицензий или гарантий.",
+  },
+  {
+    value: "integrator",
+    label: "Интегратор",
+    description: "Проектная или внедренческая организация.",
+  },
+];
 
 const passwordRules = [
   {
@@ -45,11 +81,11 @@ const passwordRules = [
   },
 ];
 
-function routeForRole(role?: string) {
+function routeForAccount(role?: string, orgType?: string) {
   if (role === "superadmin") {
     return "/app/admin";
   }
-  if (role === "support_engineer" || role === "admin") {
+  if (orgType === "manufacturer" || orgType === "vendor" || orgType === "integrator") {
     return "/app/vendor";
   }
   return "/app/dashboard";
@@ -77,11 +113,16 @@ function RuleMark({ passed, optional }: { passed: boolean; optional?: boolean })
 export function AuthCard({ mode }: AuthCardProps) {
   const router = useRouter();
   const isRegister = mode === "register";
+  const [accountType, setAccountType] = useState<AccountType>("client_personal");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [orgName, setOrgName] = useState("");
+  const [inn, setInn] = useState("");
+  const [website, setWebsite] = useState("");
+  const [contactPhone, setContactPhone] = useState("");
+  const [reviewComment, setReviewComment] = useState("");
   const [consent, setConsent] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -92,12 +133,19 @@ export function AuthCard({ mode }: AuthCardProps) {
   const requiredPasswordOk = passwordRules
     .filter((rule) => !rule.optional)
     .every((rule) => rule.test(password));
+  const isPersonal = accountType === "client_personal";
+  const isB2BPending = ["manufacturer", "vendor", "integrator"].includes(accountType);
   const passwordsMatch = !isRegister || (confirmPassword !== "" && password === confirmPassword);
   const canSubmit =
     status !== "submitting" &&
     email.trim() !== "" &&
     password !== "" &&
-    (!isRegister || (requiredPasswordOk && passwordsMatch && consent));
+    (!isRegister ||
+      (requiredPasswordOk &&
+        passwordsMatch &&
+        consent &&
+        (isPersonal || orgName.trim() !== "") &&
+        (!isB2BPending || inn.trim() !== "")));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -112,7 +160,12 @@ export function AuthCard({ mode }: AuthCardProps) {
           email: email.trim().toLowerCase(),
           password,
           full_name: fullName.trim(),
+          account_type: accountType,
           org_name: orgName.trim(),
+          inn: inn.trim(),
+          website: website.trim(),
+          contact_phone: contactPhone.trim(),
+          review_comment: reviewComment.trim(),
         }
       : {
           email: email.trim().toLowerCase(),
@@ -136,7 +189,7 @@ export function AuthCard({ mode }: AuthCardProps) {
       if (body.data.refresh_token) {
         sessionStorage.setItem("asutport_refresh_token", body.data.refresh_token);
       }
-      router.push(routeForRole(body.data.role));
+      router.push(routeForAccount(body.data.role, body.data.org_type));
     } catch {
       setError("Сервис авторизации временно недоступен");
     } finally {
@@ -146,7 +199,7 @@ export function AuthCard({ mode }: AuthCardProps) {
 
   return (
     <main className="auth-page min-h-screen px-4 py-8 text-[#1f2933]">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[448px] items-center">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-[560px] items-center">
         <section className="w-full rounded-2xl border border-[#dfe5eb] bg-white px-8 py-9 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
           <Link href="/app/kb" className="inline-flex items-center gap-3" aria-label="ASUTPORT">
             <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#0f2f2b] font-logo text-sm font-bold text-[#3fc8b7]">
@@ -166,12 +219,49 @@ export function AuthCard({ mode }: AuthCardProps) {
             </h1>
             <p className="mt-2 text-sm leading-6 text-[#6b7280]">
               {isRegister
-                ? "Создайте кабинет эксплуатации и начните вести профиль установки."
+                ? "Создайте личный кабинет или отправьте заявку на подключение организации."
                 : "Войдите в кабинет клиента, производителя или администратора."}
             </p>
           </div>
 
           <form className="mt-7 space-y-5" onSubmit={submit}>
+            {isRegister ? (
+              <fieldset>
+                <legend className="text-sm font-medium text-[#111827]">Кто вы?</legend>
+                <div className="mt-2 grid gap-2">
+                  {accountTypes.map((item) => (
+                    <label
+                      key={item.value}
+                      className={
+                        accountType === item.value
+                          ? "cursor-pointer rounded-lg border border-[#0d9488] bg-[#ecfdf9] px-3 py-2"
+                          : "cursor-pointer rounded-lg border border-[#d8dee6] bg-white px-3 py-2 hover:border-[#0d9488]/60"
+                      }
+                    >
+                      <span className="flex items-start gap-3">
+                        <input
+                          type="radio"
+                          name="account_type"
+                          value={item.value}
+                          checked={accountType === item.value}
+                          onChange={() => setAccountType(item.value)}
+                          className="mt-1 accent-[#0d9488]"
+                        />
+                        <span>
+                          <span className="block text-sm font-medium text-[#111827]">
+                            {item.label}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-[#667085]">
+                            {item.description}
+                          </span>
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+
             <label className="block">
               <span className="text-sm font-medium text-[#111827]">Email</span>
               <input
@@ -195,16 +285,68 @@ export function AuthCard({ mode }: AuthCardProps) {
                     className="mt-2 h-11 w-full rounded-lg border border-[#cfd7df] bg-white px-3 text-sm text-[#111827] outline-none transition focus:border-[#0d9488] focus:ring-4 focus:ring-[#0d9488]/10"
                   />
                 </label>
+                {!isPersonal ? (
+                  <label className="block">
+                    <span className="text-sm font-medium text-[#111827]">Организация</span>
+                    <input
+                      type="text"
+                      autoComplete="organization"
+                      value={orgName}
+                      onChange={(event) => setOrgName(event.target.value)}
+                      className="mt-2 h-11 w-full rounded-lg border border-[#cfd7df] bg-white px-3 text-sm text-[#111827] outline-none transition focus:border-[#0d9488] focus:ring-4 focus:ring-[#0d9488]/10"
+                    />
+                  </label>
+                ) : null}
+              </div>
+            ) : null}
+
+            {isRegister && !isPersonal ? (
+              <div className="grid gap-5 sm:grid-cols-2">
                 <label className="block">
-                  <span className="text-sm font-medium text-[#111827]">Организация</span>
+                  <span className="text-sm font-medium text-[#111827]">
+                    ИНН {isB2BPending ? "" : "(необязательно)"}
+                  </span>
                   <input
                     type="text"
-                    autoComplete="organization"
-                    value={orgName}
-                    onChange={(event) => setOrgName(event.target.value)}
+                    value={inn}
+                    onChange={(event) => setInn(event.target.value)}
                     className="mt-2 h-11 w-full rounded-lg border border-[#cfd7df] bg-white px-3 text-sm text-[#111827] outline-none transition focus:border-[#0d9488] focus:ring-4 focus:ring-[#0d9488]/10"
                   />
                 </label>
+                <label className="block">
+                  <span className="text-sm font-medium text-[#111827]">Телефон</span>
+                  <input
+                    type="tel"
+                    autoComplete="tel"
+                    value={contactPhone}
+                    onChange={(event) => setContactPhone(event.target.value)}
+                    className="mt-2 h-11 w-full rounded-lg border border-[#cfd7df] bg-white px-3 text-sm text-[#111827] outline-none transition focus:border-[#0d9488] focus:ring-4 focus:ring-[#0d9488]/10"
+                  />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="text-sm font-medium text-[#111827]">Сайт компании</span>
+                  <input
+                    type="url"
+                    value={website}
+                    onChange={(event) => setWebsite(event.target.value)}
+                    className="mt-2 h-11 w-full rounded-lg border border-[#cfd7df] bg-white px-3 text-sm text-[#111827] outline-none transition focus:border-[#0d9488] focus:ring-4 focus:ring-[#0d9488]/10"
+                    placeholder="https://"
+                  />
+                </label>
+                {isB2BPending ? (
+                  <label className="block sm:col-span-2">
+                    <span className="text-sm font-medium text-[#111827]">Комментарий к заявке</span>
+                    <textarea
+                      value={reviewComment}
+                      onChange={(event) => setReviewComment(event.target.value)}
+                      className="mt-2 min-h-24 w-full rounded-lg border border-[#cfd7df] bg-white px-3 py-2 text-sm text-[#111827] outline-none transition focus:border-[#0d9488] focus:ring-4 focus:ring-[#0d9488]/10"
+                      placeholder="Какие продукты, клиенты или компетенции хотите подключить?"
+                    />
+                    <span className="mt-2 block text-xs text-[#667085]">
+                      После регистрации заявка попадёт на проверку платформы. До активации реальные эскалации недоступны.
+                    </span>
+                  </label>
+                ) : null}
               </div>
             ) : null}
 

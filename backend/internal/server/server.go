@@ -29,8 +29,10 @@ type AuthHandlers struct {
 }
 
 type OrgHandlers struct {
-	ListMine http.HandlerFunc
-	Current  http.HandlerFunc
+	ListMine          http.HandlerFunc
+	Current           http.HandlerFunc
+	AdminList         http.HandlerFunc
+	AdminUpdateReview http.HandlerFunc
 }
 
 type APIKeyHandlers struct {
@@ -40,8 +42,8 @@ type APIKeyHandlers struct {
 }
 
 type Options struct {
-	Logger   *slog.Logger
-	Handlers Handlers
+	Logger      *slog.Logger
+	Handlers    Handlers
 	CORSOrigins []string
 }
 
@@ -93,6 +95,12 @@ func New(opts Options) http.Handler {
 
 			r.Get("/org", h.Org.Current)
 			r.Get("/orgs", h.Org.ListMine)
+
+			r.Group(func(r chi.Router) {
+				r.Use(appmw.RequireSuperAdmin)
+				r.Get("/admin/orgs", h.Org.AdminList)
+				r.Patch("/admin/orgs/{orgID}/review", h.Org.AdminUpdateReview)
+			})
 
 			r.Route("/orgs/{orgID}/api-keys", func(r chi.Router) {
 				r.Get("/", h.APIKey.List)

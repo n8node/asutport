@@ -41,6 +41,8 @@ type TokenPair struct {
 	SessionID    uuid.UUID
 	OrgID        uuid.UUID
 	Role         string
+	OrgType      string
+	ReviewStatus string
 }
 
 func (s *AuthService) IssueForMembership(ctx context.Context, u *models.User, m *models.OrgMembership, userAgent, ip string) (*TokenPair, error) {
@@ -66,6 +68,8 @@ func (s *AuthService) IssueForMembership(ctx context.Context, u *models.User, m 
 		SessionID:    sess.ID,
 		OrgID:        m.OrgID,
 		Role:         m.Role,
+		OrgType:      m.OrgType,
+		ReviewStatus: m.OrgReviewStatus,
 	}, nil
 }
 

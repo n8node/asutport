@@ -20,12 +20,44 @@ func NewOrgRepo(pool *pgxpool.Pool) *OrgRepo {
 	return &OrgRepo{pool: pool}
 }
 
+type OrgCreateParams struct {
+	Name          string
+	Type          string
+	Slug          string
+	LegalName     string
+	INN           string
+	Website       string
+	ContactPhone  string
+	ReviewComment string
+	IsPersonal    bool
+	ReviewStatus  string
+}
+
 func (r *OrgRepo) Create(ctx context.Context, name, orgType, slug string) (*models.Organization, error) {
+	return r.CreateWithReview(ctx, OrgCreateParams{
+		Name:         name,
+		Type:         orgType,
+		Slug:         slug,
+		ReviewStatus: "active",
+	})
+}
+
+func (r *OrgRepo) CreateWithReview(ctx context.Context, p OrgCreateParams) (*models.Organization, error) {
 	id := uuid.New()
-	q := `INSERT INTO organizations (id, name, type, slug)
-		VALUES ($1, $2, $3::org_type, $4)
-		RETURNING id, name, type::text, slug, is_active, created_at, updated_at`
-	row := r.pool.QueryRow(ctx, q, id, name, orgType, slug)
+	if p.ReviewStatus == "" {
+		p.ReviewStatus = "active"
+	}
+	q := `INSERT INTO organizations (
+			id, name, type, slug, legal_name, inn, website, contact_phone,
+			review_comment, is_personal, review_status
+		)
+		VALUES ($1, $2, $3::org_type, $4, $5, $6, $7, $8, $9, $10, $11::org_review_status)
+		RETURNING id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
+			review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, created_at, updated_at`
+	row := r.pool.QueryRow(ctx, q,
+		id, p.Name, p.Type, p.Slug, p.LegalName, p.INN, p.Website, p.ContactPhone,
+		p.ReviewComment, p.IsPersonal, p.ReviewStatus,
+	)
 	o, err := scanOrg(row)
 	if err != nil {
 		return nil, wrapInsert(err, "insert organization")
@@ -34,7 +66,9 @@ func (r *OrgRepo) Create(ctx context.Context, name, orgType, slug string) (*mode
 }
 
 func (r *OrgRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Organization, error) {
-	q := `SELECT id, name, type::text, slug, is_active, created_at, updated_at FROM organizations WHERE id = $1`
+	q := `SELECT id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
+		review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, created_at, updated_at
+		FROM organizations WHERE id = $1`
 	row := r.pool.QueryRow(ctx, q, id)
 	o, err := scanOrg(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -44,7 +78,9 @@ func (r *OrgRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Organizati
 }
 
 func (r *OrgRepo) GetBySlug(ctx context.Context, slug string) (*models.Organization, error) {
-	q := `SELECT id, name, type::text, slug, is_active, created_at, updated_at FROM organizations WHERE slug = $1`
+	q := `SELECT id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
+		review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, created_at, updated_at
+		FROM organizations WHERE slug = $1`
 	row := r.pool.QueryRow(ctx, q, slug)
 	o, err := scanOrg(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -53,9 +89,66 @@ func (r *OrgRepo) GetBySlug(ctx context.Context, slug string) (*models.Organizat
 	return o, err
 }
 
+type OrgListParams struct {
+	ReviewStatus string
+	Type         string
+	Limit        int
+	Offset       int
+}
+
+func (r *OrgRepo) List(ctx context.Context, p OrgListParams) ([]models.Organization, error) {
+	if p.Limit <= 0 || p.Limit > 100 {
+		p.Limit = 50
+	}
+	if p.Offset < 0 {
+		p.Offset = 0
+	}
+	q := `SELECT id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
+			review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, created_at, updated_at
+		FROM organizations
+		WHERE ($1 = '' OR review_status::text = $1)
+			AND ($2 = '' OR type::text = $2)
+		ORDER BY created_at DESC
+		LIMIT $3 OFFSET $4`
+	rows, err := r.pool.Query(ctx, q, p.ReviewStatus, p.Type, p.Limit, p.Offset)
+	if err != nil {
+		return nil, fmt.Errorf("list organizations: %w", err)
+	}
+	defer rows.Close()
+	var out []models.Organization
+	for rows.Next() {
+		o, err := scanOrg(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *o)
+	}
+	return out, rows.Err()
+}
+
+func (r *OrgRepo) UpdateReviewStatus(ctx context.Context, orgID, reviewerID uuid.UUID, status string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE organizations
+		SET review_status = $2::org_review_status, reviewed_at = now(), reviewed_by = $3, updated_at = now()
+		WHERE id = $1`,
+		orgID, status, reviewerID,
+	)
+	if err != nil {
+		return fmt.Errorf("update organization review status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func scanOrg(row pgx.Row) (*models.Organization, error) {
 	var o models.Organization
-	if err := row.Scan(&o.ID, &o.Name, &o.Type, &o.Slug, &o.IsActive, &o.CreatedAt, &o.UpdatedAt); err != nil {
+	if err := row.Scan(
+		&o.ID, &o.Name, &o.Type, &o.Slug, &o.IsActive, &o.LegalName, &o.INN, &o.Website,
+		&o.ContactPhone, &o.ReviewComment, &o.IsPersonal, &o.ReviewStatus, &o.ReviewedAt,
+		&o.ReviewedBy, &o.CreatedAt, &o.UpdatedAt,
+	); err != nil {
 		return nil, err
 	}
 	return &o, nil
@@ -97,7 +190,7 @@ func (r *OrgMemberRepo) GetMembership(ctx context.Context, orgID, userID uuid.UU
 
 func (r *OrgMemberRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]models.OrgMembership, error) {
 	q := `SELECT om.id, om.org_id, om.user_id, om.role::text, om.created_at,
-		o.name, o.type::text, o.slug
+		o.name, o.type::text, o.slug, o.review_status::text, o.is_personal
 		FROM org_members om
 		JOIN organizations o ON o.id = om.org_id
 		WHERE om.user_id = $1 AND o.is_active = TRUE
@@ -110,7 +203,10 @@ func (r *OrgMemberRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]mod
 	var out []models.OrgMembership
 	for rows.Next() {
 		var m models.OrgMembership
-		if err := rows.Scan(&m.ID, &m.OrgID, &m.UserID, &m.Role, &m.CreatedAt, &m.OrgName, &m.OrgType, &m.OrgSlug); err != nil {
+		if err := rows.Scan(
+			&m.ID, &m.OrgID, &m.UserID, &m.Role, &m.CreatedAt, &m.OrgName, &m.OrgType,
+			&m.OrgSlug, &m.OrgReviewStatus, &m.OrgIsPersonal,
+		); err != nil {
 			return nil, err
 		}
 		out = append(out, m)

@@ -20,8 +20,8 @@ import (
 	"github.com/n8node/asutport/internal/handler"
 	"github.com/n8node/asutport/internal/middleware"
 	"github.com/n8node/asutport/internal/repository"
-	"github.com/n8node/asutport/internal/seed"
 	s3store "github.com/n8node/asutport/internal/s3"
+	"github.com/n8node/asutport/internal/seed"
 	"github.com/n8node/asutport/internal/server"
 	"github.com/n8node/asutport/internal/service"
 	appmigrations "github.com/n8node/asutport/migrations"
@@ -116,8 +116,10 @@ func main() {
 				Switch:   authH.SwitchOrg,
 			},
 			Org: server.OrgHandlers{
-				ListMine: orgH.ListMine,
-				Current:  orgH.Current,
+				ListMine:          orgH.ListMine,
+				Current:           orgH.Current,
+				AdminList:         orgH.AdminList,
+				AdminUpdateReview: orgH.AdminUpdateReview,
 			},
 			APIKey: server.APIKeyHandlers{
 				List:   keyH.List,

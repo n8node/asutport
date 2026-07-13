@@ -11,6 +11,7 @@ import (
 
 	"github.com/n8node/asutport/internal/auth"
 	"github.com/n8node/asutport/internal/config"
+	"github.com/n8node/asutport/internal/models"
 	"github.com/n8node/asutport/internal/repository"
 )
 
@@ -177,13 +178,111 @@ func (h *OrgHandler) Current(w http.ResponseWriter, r *http.Request) {
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
-			"id":   org.ID.String(),
-			"name": org.Name,
-			"type": org.Type,
-			"slug": org.Slug,
-			"role": p.Role,
+			"id":             org.ID.String(),
+			"name":           org.Name,
+			"type":           org.Type,
+			"slug":           org.Slug,
+			"role":           p.Role,
+			"legal_name":     org.LegalName,
+			"inn":            org.INN,
+			"website":        org.Website,
+			"contact_phone":  org.ContactPhone,
+			"review_comment": org.ReviewComment,
+			"is_personal":    org.IsPersonal,
+			"review_status":  org.ReviewStatus,
 		},
 	})
+}
+
+func (h *OrgHandler) AdminList(w http.ResponseWriter, r *http.Request) {
+	p, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !p.IsSuperAdmin() {
+		WriteError(w, http.StatusForbidden, "FORBIDDEN", "superadmin only")
+		return
+	}
+	list, err := h.orgs.List(r.Context(), repository.OrgListParams{
+		ReviewStatus: strings.TrimSpace(r.URL.Query().Get("review_status")),
+		Type:         strings.TrimSpace(r.URL.Query().Get("type")),
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not list organizations")
+		return
+	}
+	items := make([]map[string]any, 0, len(list))
+	for _, org := range list {
+		items = append(items, orgDTO(org))
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"data": items})
+}
+
+type updateReviewReq struct {
+	Status string `json:"status"`
+}
+
+func (h *OrgHandler) AdminUpdateReview(w http.ResponseWriter, r *http.Request) {
+	p, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !p.IsSuperAdmin() {
+		WriteError(w, http.StatusForbidden, "FORBIDDEN", "superadmin only")
+		return
+	}
+	orgID, err := uuid.Parse(chi.URLParam(r, "orgID"))
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid org id")
+		return
+	}
+	var req updateReviewReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, "INVALID_JSON", "invalid json body")
+		return
+	}
+	req.Status = strings.TrimSpace(req.Status)
+	if !validReviewStatus(req.Status) {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid status")
+		return
+	}
+	if err := h.orgs.UpdateReviewStatus(r.Context(), orgID, p.UserID, req.Status); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			WriteError(w, http.StatusNotFound, "NOT_FOUND", "organization not found")
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not update organization")
+		return
+	}
+	org, err := h.orgs.GetByID(r.Context(), orgID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not load organization")
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"data": orgDTO(*org)})
+}
+
+func validReviewStatus(status string) bool {
+	switch status {
+	case "pending_email", "pending_review", "active", "rejected", "suspended":
+		return true
+	default:
+		return false
+	}
+}
+
+func orgDTO(org models.Organization) map[string]any {
+	return map[string]any{
+		"id":             org.ID.String(),
+		"name":           org.Name,
+		"type":           org.Type,
+		"slug":           org.Slug,
+		"is_active":      org.IsActive,
+		"legal_name":     org.LegalName,
+		"inn":            org.INN,
+		"website":        org.Website,
+		"contact_phone":  org.ContactPhone,
+		"review_comment": org.ReviewComment,
+		"is_personal":    org.IsPersonal,
+		"review_status":  org.ReviewStatus,
+		"reviewed_at":    org.ReviewedAt,
+		"reviewed_by":    org.ReviewedBy,
+		"created_at":     org.CreatedAt,
+	}
 }
 
 type forbiddenErr string

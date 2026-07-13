@@ -40,10 +40,16 @@ func NewAuthHandler(
 }
 
 type registerReq struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	FullName string `json:"full_name"`
-	OrgName  string `json:"org_name"`
+	Email         string `json:"email"`
+	Password      string `json:"password"`
+	FullName      string `json:"full_name"`
+	AccountType   string `json:"account_type"`
+	OrgName       string `json:"org_name"`
+	LegalName     string `json:"legal_name"`
+	INN           string `json:"inn"`
+	Website       string `json:"website"`
+	ContactPhone  string `json:"contact_phone"`
+	ReviewComment string `json:"review_comment"`
 }
 
 type loginReq struct {
@@ -71,6 +77,8 @@ type tokenData struct {
 	ExpiresIn    int64  `json:"expires_in"`
 	OrgID        string `json:"org_id"`
 	Role         string `json:"role"`
+	OrgType      string `json:"org_type"`
+	ReviewStatus string `json:"review_status"`
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -94,8 +102,26 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		fullName = strings.Split(req.Email, "@")[0]
 	}
 	orgName := strings.TrimSpace(req.OrgName)
+	accountType, orgType, isPersonal, reviewStatus, err := registrationOrgType(req.AccountType)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	if orgName == "" && !isPersonal {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "organization name is required")
+		return
+	}
+	inn := strings.TrimSpace(req.INN)
+	if requiresINN(accountType) && inn == "" {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "inn is required")
+		return
+	}
 	if orgName == "" {
 		orgName = fullName
+	}
+	legalName := strings.TrimSpace(req.LegalName)
+	if legalName == "" {
+		legalName = orgName
 	}
 
 	u, err := h.users.Create(r.Context(), req.Email, hash, fullName)
@@ -108,8 +134,22 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slugBase := service.SanitizeSlug(strings.Split(req.Email, "@")[0])
-	org, err := h.orgs.Create(r.Context(), orgName, "client_org", service.UniqueSlug(slugBase))
+	slugBase := orgName
+	if isPersonal {
+		slugBase = strings.Split(req.Email, "@")[0]
+	}
+	org, err := h.orgs.CreateWithReview(r.Context(), repository.OrgCreateParams{
+		Name:          orgName,
+		Type:          orgType,
+		Slug:          service.UniqueSlug(slugBase),
+		LegalName:     legalName,
+		INN:           inn,
+		Website:       strings.TrimSpace(req.Website),
+		ContactPhone:  strings.TrimSpace(req.ContactPhone),
+		ReviewComment: strings.TrimSpace(req.ReviewComment),
+		IsPersonal:    isPersonal,
+		ReviewStatus:  reviewStatus,
+	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not create organization")
 		return
@@ -121,10 +161,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mem := &models.OrgMembership{
-		OrgMember: *member,
-		OrgName:   org.Name,
-		OrgType:   org.Type,
-		OrgSlug:   org.Slug,
+		OrgMember:       *member,
+		OrgName:         org.Name,
+		OrgType:         org.Type,
+		OrgSlug:         org.Slug,
+		OrgReviewStatus: org.ReviewStatus,
+		OrgIsPersonal:   org.IsPersonal,
 	}
 	pair, err := h.authSvc.IssueForMembership(r.Context(), u, mem, r.UserAgent(), ClientIP(r))
 	if err != nil {
@@ -132,6 +174,15 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeToken(w, http.StatusCreated, pair)
+}
+
+func requiresINN(accountType string) bool {
+	switch accountType {
+	case "manufacturer", "vendor", "integrator":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -175,7 +226,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			WriteError(w, http.StatusInternalServerError, "INTERNAL", "login failed")
 			return
 		}
-		mem = &models.OrgMembership{OrgMember: *m, OrgName: org.Name, OrgType: org.Type, OrgSlug: org.Slug}
+		mem = &models.OrgMembership{
+			OrgMember:       *m,
+			OrgName:         org.Name,
+			OrgType:         org.Type,
+			OrgSlug:         org.Slug,
+			OrgReviewStatus: org.ReviewStatus,
+			OrgIsPersonal:   org.IsPersonal,
+		}
 	} else {
 		mem, err = h.members.FirstMembership(r.Context(), u.ID)
 		if err != nil {
@@ -256,17 +314,19 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
 			"user": map[string]any{
-				"id":         u.ID.String(),
-				"email":      u.Email,
-				"full_name":  u.FullName,
-				"is_active":  u.IsActive,
+				"id":        u.ID.String(),
+				"email":     u.Email,
+				"full_name": u.FullName,
+				"is_active": u.IsActive,
 			},
 			"org": map[string]any{
-				"id":   org.ID.String(),
-				"name": org.Name,
-				"type": org.Type,
-				"slug": org.Slug,
-				"role": p.Role,
+				"id":            org.ID.String(),
+				"name":          org.Name,
+				"type":          org.Type,
+				"slug":          org.Slug,
+				"role":          p.Role,
+				"review_status": org.ReviewStatus,
+				"is_personal":   org.IsPersonal,
 			},
 			"memberships": membershipDTOs(memberships),
 		},
@@ -304,7 +364,14 @@ func (h *AuthHandler) SwitchOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = h.sessions.Revoke(r.Context(), p.SessionID)
-	mem := &models.OrgMembership{OrgMember: *m, OrgName: org.Name, OrgType: org.Type, OrgSlug: org.Slug}
+	mem := &models.OrgMembership{
+		OrgMember:       *m,
+		OrgName:         org.Name,
+		OrgType:         org.Type,
+		OrgSlug:         org.Slug,
+		OrgReviewStatus: org.ReviewStatus,
+		OrgIsPersonal:   org.IsPersonal,
+	}
 	pair, err := h.authSvc.IssueForMembership(r.Context(), u, mem, r.UserAgent(), ClientIP(r))
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not issue token")
@@ -321,6 +388,8 @@ func writeToken(w http.ResponseWriter, status int, pair *service.TokenPair) {
 	res.Data.ExpiresIn = pair.ExpiresIn
 	res.Data.OrgID = pair.OrgID.String()
 	res.Data.Role = pair.Role
+	res.Data.OrgType = pair.OrgType
+	res.Data.ReviewStatus = pair.ReviewStatus
 	WriteJSON(w, status, res)
 }
 
@@ -328,14 +397,37 @@ func membershipDTOs(list []models.OrgMembership) []map[string]any {
 	out := make([]map[string]any, 0, len(list))
 	for _, m := range list {
 		out = append(out, map[string]any{
-			"org_id":   m.OrgID.String(),
-			"org_name": m.OrgName,
-			"org_type": m.OrgType,
-			"org_slug": m.OrgSlug,
-			"role":     m.Role,
+			"org_id":        m.OrgID.String(),
+			"org_name":      m.OrgName,
+			"org_type":      m.OrgType,
+			"org_slug":      m.OrgSlug,
+			"role":          m.Role,
+			"review_status": m.OrgReviewStatus,
+			"is_personal":   m.OrgIsPersonal,
 		})
 	}
 	return out
+}
+
+func registrationOrgType(raw string) (accountType, orgType string, isPersonal bool, reviewStatus string, err error) {
+	accountType = strings.TrimSpace(raw)
+	if accountType == "" {
+		accountType = "client_personal"
+	}
+	switch accountType {
+	case "client_personal":
+		return accountType, "client_org", true, "active", nil
+	case "client_org":
+		return accountType, "client_org", false, "active", nil
+	case "manufacturer":
+		return accountType, "manufacturer", false, "pending_review", nil
+	case "vendor":
+		return accountType, "vendor", false, "pending_review", nil
+	case "integrator":
+		return accountType, "integrator", false, "pending_review", nil
+	default:
+		return "", "", false, "", validationErr("invalid account_type")
+	}
 }
 
 func validateEmail(s string) error {
