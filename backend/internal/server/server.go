@@ -10,10 +10,39 @@ import (
 	appmw "github.com/n8node/asutport/internal/middleware"
 )
 
+type Handlers struct {
+	Health   http.Handler
+	Auth     AuthHandlers
+	Org      OrgHandlers
+	APIKey   APIKeyHandlers
+	AuthDeps appmw.AuthDeps
+	LoginRL  *appmw.LoginRateLimiter
+}
+
+type AuthHandlers struct {
+	Register http.HandlerFunc
+	Login    http.HandlerFunc
+	Refresh  http.HandlerFunc
+	Logout   http.HandlerFunc
+	Me       http.HandlerFunc
+	Switch   http.HandlerFunc
+}
+
+type OrgHandlers struct {
+	ListMine http.HandlerFunc
+	Current  http.HandlerFunc
+}
+
+type APIKeyHandlers struct {
+	List   http.HandlerFunc
+	Create http.HandlerFunc
+	Revoke http.HandlerFunc
+}
+
 type Options struct {
-	Logger        *slog.Logger
-	HealthHandler http.Handler
-	CORSOrigins   []string
+	Logger   *slog.Logger
+	Handlers Handlers
+	CORSOrigins []string
 }
 
 func New(opts Options) http.Handler {
@@ -31,12 +60,45 @@ func New(opts Options) http.Handler {
 	}
 	r.Use(appmw.CORS(origins))
 
-	r.Get("/health", opts.HealthHandler.ServeHTTP)
+	h := opts.Handlers
+	r.Get("/health", h.Health.ServeHTTP)
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/v1/ping", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":"pong"}`))
+		})
+
+		r.Route("/v1/auth", func(r chi.Router) {
+			if h.LoginRL != nil {
+				r.With(appmw.LoginRateLimit(h.LoginRL)).Post("/register", h.Auth.Register)
+				r.With(appmw.LoginRateLimit(h.LoginRL)).Post("/login", h.Auth.Login)
+			} else {
+				r.Post("/register", h.Auth.Register)
+				r.Post("/login", h.Auth.Login)
+			}
+			r.Post("/refresh", h.Auth.Refresh)
+
+			r.Group(func(r chi.Router) {
+				r.Use(appmw.Authenticate(h.AuthDeps))
+				r.Post("/logout", h.Auth.Logout)
+				r.Get("/me", h.Auth.Me)
+				r.Post("/switch-org", h.Auth.Switch)
+			})
+		})
+
+		r.Route("/v1", func(r chi.Router) {
+			r.Use(appmw.Authenticate(h.AuthDeps))
+			r.Use(appmw.RequireOrgFromToken)
+
+			r.Get("/org", h.Org.Current)
+			r.Get("/orgs", h.Org.ListMine)
+
+			r.Route("/orgs/{orgID}/api-keys", func(r chi.Router) {
+				r.Get("/", h.APIKey.List)
+				r.Post("/", h.APIKey.Create)
+				r.Delete("/{keyID}", h.APIKey.Revoke)
+			})
 		})
 	})
 

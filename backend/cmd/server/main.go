@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,13 +18,22 @@ import (
 
 	"github.com/n8node/asutport/internal/config"
 	"github.com/n8node/asutport/internal/handler"
+	"github.com/n8node/asutport/internal/middleware"
 	"github.com/n8node/asutport/internal/repository"
+	"github.com/n8node/asutport/internal/seed"
 	s3store "github.com/n8node/asutport/internal/s3"
 	"github.com/n8node/asutport/internal/server"
+	"github.com/n8node/asutport/internal/service"
 	appmigrations "github.com/n8node/asutport/migrations"
 )
 
 func main() {
+	seedAdmin := flag.Bool("seed-admin", false, "create platform superadmin user")
+	seedEmail := flag.String("email", "", "superadmin email (with --seed-admin)")
+	seedPassword := flag.String("password", "", "superadmin password (with --seed-admin)")
+	seedName := flag.String("full-name", "ASUTPORT Admin", "superadmin full name (with --seed-admin)")
+	flag.Parse()
+
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("config", slog.Any("err", err))
@@ -53,16 +63,69 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *seedAdmin {
+		if err := seed.Admin(ctx, pool, seed.AdminOptions{
+			Email:    *seedEmail,
+			Password: *seedPassword,
+			FullName: *seedName,
+		}, logger); err != nil {
+			logger.Error("seed-admin", slog.Any("err", err))
+			os.Exit(1)
+		}
+		return
+	}
+
 	s3Client, err := s3store.NewClient(cfg)
 	if err != nil {
 		logger.Error("s3", slog.Any("err", err))
 		os.Exit(1)
 	}
 
+	users := repository.NewUserRepo(pool)
+	orgs := repository.NewOrgRepo(pool)
+	members := repository.NewOrgMemberRepo(pool)
+	sessions := repository.NewSessionRepo(pool)
+	apiKeys := repository.NewAPIKeyRepo(pool)
+	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
+
+	authH := handler.NewAuthHandler(users, orgs, members, sessions, authSvc)
+	orgH := handler.NewOrgHandler(members, orgs)
+	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
+
+	authDeps := middleware.AuthDeps{
+		Cfg:      cfg,
+		Users:    users,
+		Sessions: sessions,
+		Members:  members,
+		Keys:     apiKeys,
+	}
+	loginRL := middleware.NewLoginRateLimiter(10, time.Minute)
+
 	h := server.New(server.Options{
-		Logger:        logger,
-		HealthHandler: handler.NewHealth(cfg.Version, pool, s3Client),
-		CORSOrigins:   []string{"*"},
+		Logger: logger,
+		Handlers: server.Handlers{
+			Health:   handler.NewHealth(cfg.Version, pool, s3Client),
+			AuthDeps: authDeps,
+			LoginRL:  loginRL,
+			Auth: server.AuthHandlers{
+				Register: authH.Register,
+				Login:    authH.Login,
+				Refresh:  authH.Refresh,
+				Logout:   authH.Logout,
+				Me:       authH.Me,
+				Switch:   authH.SwitchOrg,
+			},
+			Org: server.OrgHandlers{
+				ListMine: orgH.ListMine,
+				Current:  orgH.Current,
+			},
+			APIKey: server.APIKeyHandlers{
+				List:   keyH.List,
+				Create: keyH.Create,
+				Revoke: keyH.Revoke,
+			},
+		},
+		CORSOrigins: []string{"*"},
 	})
 
 	addr := ":" + cfg.ServerPort
