@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+
+import { authFetch, defaultCorsHints } from "@/lib/auth-session";
 
 type ApiError = { error?: { message?: string } };
 
@@ -82,16 +85,13 @@ const monoInputClass = `${inputClass} font-mono text-[12px]`;
 const labelClass = "block text-[12px] font-medium text-[#4b5563]";
 const sectionTitleClass = "text-[11px] font-medium uppercase tracking-[0.08em] text-[#8a857d]";
 
+function isAuthError(message: string) {
+  const lower = message.toLowerCase();
+  return lower.includes("missing or invalid authentication") || lower.includes("unauthorized");
+}
+
 async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = sessionStorage.getItem("asutport_access_token") ?? "";
-  const response = await fetch(`/api/v1${path}`, {
-    ...options,
-    headers: {
-      ...(options.body ? { "Content-Type": "application/json" } : {}),
-      Authorization: `Bearer ${token}`,
-      ...(options.headers ?? {}),
-    },
-  });
+  const response = await authFetch(`/api/v1${path}`, options);
   const body = (await response.json()) as ({ data?: T } & ApiError);
   if (!response.ok) {
     throw new Error(body.error?.message || "request failed");
@@ -102,7 +102,8 @@ async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
 export function AdminSettingsPanels() {
   const [s3, setS3] = useState<S3Settings>(defaultS3);
   const [s3Secret, setS3Secret] = useState("");
-  const [cors, setCors] = useState<S3CorsHints | null>(null);
+  const [cors, setCors] = useState<S3CorsHints>(defaultCorsHints());
+  const [authError, setAuthError] = useState(false);
   const [smtpView, setSMTPView] = useState<SMTPView>(defaultSMTP);
   const [smtpPassword, setSMTPPassword] = useState("");
   const [testTo, setTestTo] = useState("");
@@ -128,7 +129,15 @@ export function AdminSettingsPanels() {
         setSMTPView(smtpData);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Не удалось загрузить настройки");
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "Не удалось загрузить настройки";
+        if (isAuthError(message)) {
+          setAuthError(true);
+          setError("Сессия истекла или вы не вошли как суперадмин. Войдите снова — CORS и Test connection появятся после авторизации.");
+        } else {
+          setError(message);
+        }
+        setCors(defaultCorsHints());
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -172,7 +181,9 @@ export function AdminSettingsPanels() {
       setS3Secret("");
       setMessage("S3-настройки сохранены");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось сохранить S3");
+      const message = err instanceof Error ? err.message : "Не удалось сохранить S3";
+      setAuthError(isAuthError(message));
+      setError(message);
     } finally {
       setSavingS3(false);
     }
@@ -186,7 +197,9 @@ export function AdminSettingsPanels() {
       await api<{ ok: boolean }>("/admin/settings/s3/test", { method: "POST" });
       setMessage("S3 подключение успешно проверено");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "S3 test failed");
+      const message = err instanceof Error ? err.message : "S3 test failed";
+      setAuthError(isAuthError(message));
+      setError(message);
     } finally {
       setTestingS3(false);
     }
@@ -257,13 +270,78 @@ export function AdminSettingsPanels() {
   return (
     <div id="settings" className="space-y-6">
       {error ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">{error}</div>
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">
+          {error}
+          {authError ? (
+            <div className="mt-2">
+              <Link href="/app/login" className="font-medium text-[#185fa5] underline">
+                Войти снова
+              </Link>
+            </div>
+          ) : null}
+        </div>
       ) : null}
       {message ? (
         <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[13px] text-green-900">{message}</div>
       ) : null}
 
-      <div id="smtp" className="space-y-5">
+      <div id="s3" className="space-y-5">
+        <div>
+          <h2 className="text-[18px] font-semibold text-[#18212f]">S3-compatible object storage</h2>
+          <p className="mt-1 text-[13px] text-[#6f6a62]">
+            Объектное хранилище для документации, страниц, вложений тикетов и слепков конфигурации.
+          </p>
+        </div>
+
+        <SettingsBlock title="S3-compatible storage">
+          <p className="mb-4 text-[12px] text-[#6f6a62]">
+            Работает с провайдерами, которые открывают S3 API. Для Beget и MinIO обычно нужен path-style.
+            Кнопка <strong>Test connection</strong> проверяет доступ с сервера — CORS для неё не нужен.
+          </p>
+          <Check checked={s3.enabled} onChange={(v) => patchS3({ enabled: v })}>Enable storage for ASUTPORT uploads</Check>
+          <Field label="Endpoint (URL)" className="mt-4">
+            <input className={monoInputClass} value={s3.endpoint} onChange={(e) => patchS3({ endpoint: e.target.value })} placeholder="https://s3.ru1.storage.beget.cloud" />
+          </Field>
+          <Field label="Bucket" className="mt-4">
+            <input className={monoInputClass} value={s3.bucket} onChange={(e) => patchS3({ bucket: e.target.value })} />
+          </Field>
+          <Field label="Region" className="mt-4">
+            <input className={monoInputClass} value={s3.region} onChange={(e) => patchS3({ region: e.target.value })} />
+          </Field>
+          <Field label="Access Key ID" className="mt-4">
+            <input className={monoInputClass} value={s3.access_key_id} onChange={(e) => patchS3({ access_key_id: e.target.value })} />
+          </Field>
+          <Field label={`Secret Access Key ${s3.has_secret ? "(leave empty to keep current)" : ""}`} className="mt-4">
+            <input className={monoInputClass} type="password" autoComplete="new-password" value={s3Secret} onChange={(e) => setS3Secret(e.target.value)} />
+          </Field>
+          <div className="mt-4">
+            <Check checked={s3.use_path_style} onChange={(v) => patchS3({ use_path_style: v })}>Use path-style addressing (typical for MinIO and many S3-compatible hosts)</Check>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-2">
+            <button type="button" disabled={savingS3} onClick={() => void saveS3()} className="rounded-lg bg-[#18212f] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-50">
+              {savingS3 ? "Saving..." : "Save"}
+            </button>
+            <button type="button" disabled={testingS3} onClick={() => void testS3()} className="rounded-lg border border-[#d7d2ca] px-4 py-2 text-[13px] disabled:opacity-50">
+              {testingS3 ? "Testing..." : "Test connection"}
+            </button>
+          </div>
+        </SettingsBlock>
+
+        <SettingsBlock title="CORS on the bucket">
+          <p className="text-[12px] leading-5 text-[#6f6a62]">
+            CORS настраивается в панели Beget S3 для прямых браузерных загрузок. Origins приложения:{" "}
+            {cors.allowed_origins.join(", ")}
+          </p>
+          <textarea
+            readOnly
+            value={cors.cors_xml}
+            spellCheck={false}
+            className="mt-3 min-h-[220px] w-full rounded-lg border border-[#d7d2ca] bg-[#f7f6f2] px-3 py-2 font-mono text-[11px] text-[#18212f] outline-none"
+          />
+        </SettingsBlock>
+      </div>
+
+      <div id="smtp" className="space-y-5 border-t border-[#dedbd3] pt-6">
         <div>
           <h2 className="text-[18px] font-semibold text-[#18212f]">Email / SMTP</h2>
           <p className="mt-1 text-[13px] text-[#6f6a62]">
@@ -356,58 +434,6 @@ export function AdminSettingsPanels() {
         <button type="button" disabled={savingSMTP} onClick={() => void saveSMTP()} className="rounded-lg bg-[#185fa5] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-50">
           {savingSMTP ? "Сохраняю..." : "Сохранить email-настройки"}
         </button>
-      </div>
-
-      <div id="s3" className="space-y-5 border-t border-[#dedbd3] pt-6">
-        <div>
-          <h2 className="text-[18px] font-semibold text-[#18212f]">S3-compatible object storage</h2>
-          <p className="mt-1 text-[13px] text-[#6f6a62]">
-            Объектное хранилище для документации, страниц, вложений тикетов и слепков конфигурации.
-          </p>
-        </div>
-
-        <SettingsBlock title="S3-compatible storage">
-          <p className="mb-4 text-[12px] text-[#6f6a62]">Работает с провайдерами, которые открывают S3 API. Для Beget и MinIO обычно нужен path-style.</p>
-          <Check checked={s3.enabled} onChange={(v) => patchS3({ enabled: v })}>Enable storage for ASUTPORT uploads</Check>
-          <Field label="Endpoint (URL)" className="mt-4">
-            <input className={monoInputClass} value={s3.endpoint} onChange={(e) => patchS3({ endpoint: e.target.value })} placeholder="https://s3.ru1.storage.beget.cloud" />
-          </Field>
-          <Field label="Bucket" className="mt-4">
-            <input className={monoInputClass} value={s3.bucket} onChange={(e) => patchS3({ bucket: e.target.value })} />
-          </Field>
-          <Field label="Region" className="mt-4">
-            <input className={monoInputClass} value={s3.region} onChange={(e) => patchS3({ region: e.target.value })} />
-          </Field>
-          <Field label="Access Key ID" className="mt-4">
-            <input className={monoInputClass} value={s3.access_key_id} onChange={(e) => patchS3({ access_key_id: e.target.value })} />
-          </Field>
-          <Field label={`Secret Access Key ${s3.has_secret ? "(leave empty to keep current)" : ""}`} className="mt-4">
-            <input className={monoInputClass} type="password" autoComplete="new-password" value={s3Secret} onChange={(e) => setS3Secret(e.target.value)} />
-          </Field>
-          <div className="mt-4">
-            <Check checked={s3.use_path_style} onChange={(v) => patchS3({ use_path_style: v })}>Use path-style addressing (typical for MinIO and many S3-compatible hosts)</Check>
-          </div>
-          <div className="mt-6 flex flex-wrap gap-2">
-            <button type="button" disabled={savingS3} onClick={() => void saveS3()} className="rounded-lg bg-[#18212f] px-4 py-2 text-[13px] font-medium text-white disabled:opacity-50">
-              {savingS3 ? "Saving..." : "Save"}
-            </button>
-            <button type="button" disabled={testingS3} onClick={() => void testS3()} className="rounded-lg border border-[#d7d2ca] px-4 py-2 text-[13px] disabled:opacity-50">
-              {testingS3 ? "Testing..." : "Test connection"}
-            </button>
-          </div>
-        </SettingsBlock>
-
-        <SettingsBlock title="CORS on the bucket">
-          <p className="text-[12px] leading-5 text-[#6f6a62]">
-            Для прямых браузерных загрузок разрешите origins, которые использует приложение: {cors?.allowed_origins?.join(", ") || "—"}
-          </p>
-          <textarea
-            readOnly
-            value={cors?.cors_xml ?? ""}
-            spellCheck={false}
-            className="mt-3 min-h-[220px] w-full rounded-lg border border-[#d7d2ca] bg-[#f7f6f2] px-3 py-2 font-mono text-[11px] text-[#18212f] outline-none"
-          />
-        </SettingsBlock>
       </div>
     </div>
   );

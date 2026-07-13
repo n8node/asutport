@@ -4,6 +4,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
+import { authFetch } from "@/lib/auth-session";
+
 type AdminShellProps = {
   children: ReactNode;
 };
@@ -93,13 +95,7 @@ export function AdminShell({ children }: AdminShellProps) {
   const avatar = useMemo(() => initials(email), [email]);
 
   useEffect(() => {
-    const token = sessionStorage.getItem("asutport_access_token");
-    if (!token) {
-      return;
-    }
-    fetch("/api/v1/auth/me", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    void authFetch("/api/v1/auth/me")
       .then((response) => (response.ok ? response.json() : null))
       .then((body: MeResponse | null) => {
         if (body?.data?.user?.email) {
