@@ -74,3 +74,49 @@ type APIKey struct {
 	RevokedAt  *time.Time
 	CreatedAt  time.Time
 }
+
+type UserMessengerLink struct {
+	ID                   uuid.UUID
+	UserID               uuid.UUID
+	Provider             string
+	ExternalUserID       string
+	Username             string
+	DisplayName          string
+	IsVerified           bool
+	NotificationsEnabled bool
+	LinkedAt             *time.Time
+	RevokedAt            *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+type AdminUserMembership struct {
+	OrgID         uuid.UUID
+	OrgName       string
+	OrgType       string
+	OrgSlug       string
+	Role          string
+	ReviewStatus  string
+	IsPersonal    bool
+	OrgIsActive   bool
+	INN           string
+	Website       string
+	ContactPhone  string
+	MemberSince   time.Time
+}
+
+type AdminUserListRow struct {
+	User
+	LastLoginAt    *time.Time
+	ActiveSessions int
+	LastIP         string
+	LastUserAgent  string
+	Memberships    []AdminUserMembership
+	Messengers     []UserMessengerLink
+	AccessLevel    string
+}
+
+type AdminUserSession struct {
+	Session
+	OrgName string
+}

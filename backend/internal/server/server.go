@@ -11,13 +11,14 @@ import (
 )
 
 type Handlers struct {
-	Health   http.Handler
-	Auth     AuthHandlers
-	Org      OrgHandlers
-	APIKey   APIKeyHandlers
-	Admin    AdminHandlers
-	AuthDeps appmw.AuthDeps
-	LoginRL  *appmw.LoginRateLimiter
+	Health    http.Handler
+	Auth      AuthHandlers
+	Org       OrgHandlers
+	AdminUser AdminUserHandlers
+	APIKey    APIKeyHandlers
+	Admin     AdminHandlers
+	AuthDeps  appmw.AuthDeps
+	LoginRL   *appmw.LoginRateLimiter
 }
 
 type AuthHandlers struct {
@@ -34,6 +35,13 @@ type OrgHandlers struct {
 	Current           http.HandlerFunc
 	AdminList         http.HandlerFunc
 	AdminUpdateReview http.HandlerFunc
+}
+
+type AdminUserHandlers struct {
+	List           http.HandlerFunc
+	Get            http.HandlerFunc
+	PatchActive    http.HandlerFunc
+	RevokeSessions http.HandlerFunc
 }
 
 type APIKeyHandlers struct {
@@ -111,6 +119,10 @@ func New(opts Options) http.Handler {
 				r.Use(appmw.RequireSuperAdmin)
 				r.Get("/admin/orgs", h.Org.AdminList)
 				r.Patch("/admin/orgs/{orgID}/review", h.Org.AdminUpdateReview)
+				r.Get("/admin/users", h.AdminUser.List)
+				r.Get("/admin/users/{userID}", h.AdminUser.Get)
+				r.Patch("/admin/users/{userID}", h.AdminUser.PatchActive)
+				r.Post("/admin/users/{userID}/revoke-sessions", h.AdminUser.RevokeSessions)
 				r.Get("/admin/settings/s3", h.Admin.S3Get)
 				r.Patch("/admin/settings/s3", h.Admin.S3Patch)
 				r.Post("/admin/settings/s3/test", h.Admin.S3Test)

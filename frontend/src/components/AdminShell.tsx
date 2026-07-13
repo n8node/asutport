@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -8,6 +9,7 @@ import { authFetch } from "@/lib/auth-session";
 
 type AdminShellProps = {
   children: ReactNode;
+  breadcrumb?: string;
 };
 
 type MeResponse = {
@@ -37,14 +39,15 @@ const navSections: AdminNavSection[] = [
   {
     title: "Обзор",
     items: [
-      { label: "Dashboard", href: "/app/admin", icon: DashboardIcon, active: true },
+      { label: "Dashboard", href: "/app/admin", icon: DashboardIcon },
       { label: "Alerts", href: "#alerts", icon: BellIcon, badge: "—", tone: "red" },
     ],
   },
   {
     title: "Организации",
     items: [
-      { label: "Заявки", href: "#org-requests", icon: InboxIcon, badge: "new" },
+      { label: "Заявки", href: "/app/admin#org-requests", icon: InboxIcon, badge: "new" },
+      { label: "Пользователи", href: "/app/admin/users", icon: UserIcon },
       { label: "Клиенты", href: "#clients", icon: UsersIcon },
       { label: "Производители", href: "#manufacturers", icon: FactoryIcon },
       { label: "Поставщики", href: "#vendors", icon: BriefcaseIcon },
@@ -90,9 +93,21 @@ function initials(email: string) {
   return local.slice(0, 2).toUpperCase();
 }
 
-export function AdminShell({ children }: AdminShellProps) {
+export function AdminShell({ children, breadcrumb = "Dashboard" }: AdminShellProps) {
+  const pathname = usePathname();
   const [email, setEmail] = useState("admin@asutport.ru");
   const avatar = useMemo(() => initials(email), [email]);
+
+  function isNavActive(href: string) {
+    if (href.startsWith("#")) {
+      return false;
+    }
+    const path = href.split("#")[0];
+    if (path === "/app/admin") {
+      return pathname === "/admin" || pathname === "/app/admin";
+    }
+    return pathname === path.replace("/app", "") || pathname === path;
+  }
 
   useEffect(() => {
     void authFetch("/api/v1/auth/me")
@@ -141,12 +156,13 @@ export function AdminShell({ children }: AdminShellProps) {
               <ul className="space-y-px">
                 {section.items.map((item) => {
                   const Icon = item.icon;
+                  const active = isNavActive(item.href);
                   return (
                     <li key={item.label}>
                       <Link
                         href={item.href}
                         className={
-                          item.active
+                          active
                             ? "flex items-center gap-2 rounded-lg bg-[#1d4ed8] px-2.5 py-[7px] text-[12px] font-medium text-white"
                             : "flex items-center gap-2 rounded-lg px-2.5 py-[7px] text-[12px] text-white/70 transition-colors hover:bg-[#1e293b] hover:text-white"
                         }
@@ -208,7 +224,7 @@ export function AdminShell({ children }: AdminShellProps) {
           <div className="flex items-center gap-1.5 text-[12px] text-[#7a746b]">
             <span>Admin</span>
             <span className="text-[#c7c2ba]">›</span>
-            <span className="font-medium text-[#18212f]">Dashboard</span>
+            <span className="font-medium text-[#18212f]">{breadcrumb}</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <div className="relative">
@@ -277,6 +293,9 @@ function InboxIcon() {
 }
 function UsersIcon() {
   return <IconBase><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" /><circle cx="9.5" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></IconBase>;
+}
+function UserIcon() {
+  return <IconBase><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></IconBase>;
 }
 function FactoryIcon() {
   return <IconBase><path d="M3 21h18" /><path d="M5 21V9l5 3V9l5 3V5h4v16" /><path d="M9 17h1" /><path d="M14 17h1" /></IconBase>;

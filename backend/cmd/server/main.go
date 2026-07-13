@@ -87,10 +87,12 @@ func main() {
 	sessions := repository.NewSessionRepo(pool)
 	apiKeys := repository.NewAPIKeyRepo(pool)
 	adminSettings := repository.NewAdminSettingsRepo(pool)
+	adminUsers := repository.NewAdminUserRepo(pool)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
 
 	authH := handler.NewAuthHandler(users, orgs, members, sessions, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
+	adminUserH := handler.NewAdminUserHandler(adminUsers)
 	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
 	adminSettingsH := handler.NewAdminSettingsHandler(cfg, adminSettings)
 
@@ -122,6 +124,12 @@ func main() {
 				Current:           orgH.Current,
 				AdminList:         orgH.AdminList,
 				AdminUpdateReview: orgH.AdminUpdateReview,
+			},
+			AdminUser: server.AdminUserHandlers{
+				List:           adminUserH.List,
+				Get:            adminUserH.Get,
+				PatchActive:    adminUserH.PatchActive,
+				RevokeSessions: adminUserH.RevokeSessions,
 			},
 			APIKey: server.APIKeyHandlers{
 				List:   keyH.List,
