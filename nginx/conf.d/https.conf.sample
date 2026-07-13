@@ -44,6 +44,18 @@ server {
         include /etc/nginx/includes/proxy-base.conf;
     }
 
+    location /login {
+        set $frontend_upstream http://frontend:3000;
+        proxy_pass $frontend_upstream;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
+    location /register {
+        set $frontend_upstream http://frontend:3000;
+        proxy_pass $frontend_upstream;
+        include /etc/nginx/includes/proxy-base.conf;
+    }
+
     location /dashboard {
         set $frontend_upstream http://frontend:3000;
         proxy_pass $frontend_upstream;

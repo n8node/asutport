@@ -82,6 +82,21 @@
     --dim: #718096;
     --acc: #0d9488;
   }
+
+  .auth-page {
+    --bg: #f4f3ef;
+    --panel: #ffffff;
+    --panel2: #f2f5f7;
+    --line: #dfe5eb;
+    --line2: #cfd7df;
+    --text: #1f2933;
+    --mut: #6b7280;
+    --dim: #8a94a3;
+    --acc: #0d9488;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(63, 200, 183, 0.12), transparent 34rem),
+      var(--bg);
+  }
 }
 
 @keyframes lamp-blink {
