@@ -30,6 +30,7 @@ type AuthHandler struct {
 	emailNotify  *email.Notifier
 	ticketSvc    *service.TicketService
 	authSvc      *service.AuthService
+	billingSvc   *service.BillingService
 }
 
 func NewAuthHandler(
@@ -43,6 +44,7 @@ func NewAuthHandler(
 	emailNotify *email.Notifier,
 	ticketSvc *service.TicketService,
 	authSvc *service.AuthService,
+	billingSvc *service.BillingService,
 ) *AuthHandler {
 	return &AuthHandler{
 		cfg:         cfg,
@@ -55,6 +57,7 @@ func NewAuthHandler(
 		emailNotify: emailNotify,
 		ticketSvc:   ticketSvc,
 		authSvc:     authSvc,
+		billingSvc:  billingSvc,
 	}
 }
 
@@ -320,6 +323,9 @@ func (h *AuthHandler) VerifyRegistration(w http.ResponseWriter, r *http.Request)
 	if err := h.orgs.SetReviewStatus(r.Context(), verification.OrgID, nextStatus); err != nil {
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not verify registration")
 		return
+	}
+	if nextStatus == "active" && h.billingSvc != nil {
+		_ = h.billingSvc.EnsureDefaultSubscription(r.Context(), verification.OrgID)
 	}
 	if err := h.regVerify.MarkUsed(r.Context(), verification.ID); err != nil {
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not verify registration")

@@ -12,15 +12,17 @@ import (
 	"github.com/n8node/asutport/internal/auth"
 	"github.com/n8node/asutport/internal/models"
 	"github.com/n8node/asutport/internal/repository"
+	"github.com/n8node/asutport/internal/service"
 )
 
 type AdminOrgHandler struct {
-	orgs    *repository.AdminOrgRepo
-	orgBase *repository.OrgRepo
+	orgs      *repository.AdminOrgRepo
+	orgBase   *repository.OrgRepo
+	billing   *service.BillingService
 }
 
-func NewAdminOrgHandler(orgs *repository.AdminOrgRepo, orgBase *repository.OrgRepo) *AdminOrgHandler {
-	return &AdminOrgHandler{orgs: orgs, orgBase: orgBase}
+func NewAdminOrgHandler(orgs *repository.AdminOrgRepo, orgBase *repository.OrgRepo, billing *service.BillingService) *AdminOrgHandler {
+	return &AdminOrgHandler{orgs: orgs, orgBase: orgBase, billing: billing}
 }
 
 func (h *AdminOrgHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -135,6 +137,9 @@ func (h *AdminOrgHandler) UpdateReview(w http.ResponseWriter, r *http.Request) {
 		}
 		WriteError(w, http.StatusInternalServerError, "INTERNAL", "could not update organization")
 		return
+	}
+	if req.Status == "active" && h.billing != nil {
+		_ = h.billing.EnsureDefaultSubscription(r.Context(), orgID)
 	}
 	row, members, err := h.orgs.GetDetail(r.Context(), orgID)
 	if err != nil {

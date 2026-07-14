@@ -91,15 +91,18 @@ func main() {
 	emailLoader := email.NewLoader(adminSettings, cfg.JWTSecret)
 	emailNotify := email.NewNotifier(emailLoader)
 	installations := repository.NewInstallationRepo(pool)
+	billingRepo := repository.NewBillingRepo(pool)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
-	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, installations, fallbackRepo, s3Loader, emailNotify)
+	billingSvc := service.NewBillingService(billingRepo, ticketRepo, orgs)
+	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, installations, fallbackRepo, s3Loader, emailNotify, billingSvc)
 
-	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, emailNotify, ticketSvc, authSvc)
+	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, emailNotify, ticketSvc, authSvc, billingSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
 	ticketH := handler.NewTicketHandler(ticketSvc, orgs)
 	clientH := handler.NewClientHandler(installations, ticketSvc, orgs)
 	vendorH := handler.NewVendorHandler(ticketSvc, orgs)
-	adminOrgH := handler.NewAdminOrgHandler(adminOrgs, orgs)
+	billingH := handler.NewBillingHandler(billingSvc, orgs)
+	adminOrgH := handler.NewAdminOrgHandler(adminOrgs, orgs, billingSvc)
 	adminUserH := handler.NewAdminUserHandler(adminUsers)
 	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
 	adminSettingsH := handler.NewAdminSettingsHandler(cfg, adminSettings)
@@ -164,6 +167,18 @@ func main() {
 			Vendor: server.VendorHandlers{
 				Dashboard:   vendorH.Dashboard,
 				ListTickets: vendorH.ListTickets,
+			},
+			Billing: server.BillingHandlers{
+				ClientSummary:           billingH.ClientSummary,
+				ClientQuotaCheck:        billingH.ClientQuotaCheck,
+				VendorSummary:           billingH.VendorSummary,
+				AdminOverview:           billingH.AdminOverview,
+				AdminListPlans:          billingH.AdminListPlans,
+				AdminCreatePlan:         billingH.AdminCreatePlan,
+				AdminUpdatePlan:         billingH.AdminUpdatePlan,
+				AdminAssignSubscription: billingH.AdminAssignSubscription,
+				AdminRecordPayment:      billingH.AdminRecordPayment,
+				AdminListPayments:       billingH.AdminListPayments,
 			},
 			AdminOrg: server.AdminOrgHandlers{
 				List:         adminOrgH.List,

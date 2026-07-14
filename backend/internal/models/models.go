@@ -279,3 +279,76 @@ type TicketAttachment struct {
 	Status            string
 	CreatedAt         time.Time
 }
+
+type Plan struct {
+	ID              uuid.UUID
+	OrgType         string
+	Name            string
+	Slug            string
+	PriceMonthlyRub int
+	TicketQuota     *int
+	OveragePriceRub int
+	SLAMatrix       []byte
+	Features        []byte
+	IsPublic        bool
+	IsArchived      bool
+	SortOrder       int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type Subscription struct {
+	ID                 uuid.UUID
+	OrgID              uuid.UUID
+	PlanID             uuid.UUID
+	Status             string
+	CurrentPeriodStart time.Time
+	CurrentPeriodEnd   time.Time
+	CancelAtPeriodEnd  bool
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	PlanName           string
+	PlanSlug           string
+	PlanOrgType        string
+	TicketQuota        *int
+	OveragePriceRub    int
+	PriceMonthlyRub    int
+}
+
+type Payment struct {
+	ID             uuid.UUID
+	OrgID          uuid.UUID
+	SubscriptionID *uuid.UUID
+	TicketID       *uuid.UUID
+	Type           string
+	AmountKopecks  int
+	Status         string
+	InvoiceS3Key   string
+	Note           string
+	RecordedBy     *uuid.UUID
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type BillingSummary struct {
+	Plan               Plan
+	Subscription       Subscription
+	TicketsUsed        int
+	TicketQuota        *int
+	OveragePriceRub    int
+	PeriodStart        time.Time
+	PeriodEnd          time.Time
+	RecentPayments     []Payment
+	PublicPlans        []Plan
+}
+
+type TicketQuotaCheck struct {
+	Allowed         bool
+	Warning         string
+	IsOverage       bool
+	TicketsUsed     int
+	TicketQuota     *int
+	OveragePriceRub int
+	PlanName        string
+	Priority        string
+}

@@ -21,6 +21,7 @@ import {
   createClientTicket,
   fetchClientTickets,
   fetchInstallations,
+  fetchTicketQuotaCheck,
   type ClientTicket,
   type Installation,
 } from "@/lib/client-dashboard";
@@ -38,6 +39,7 @@ export default function TicketsPage() {
   const [type, setType] = useState("typical");
   const [priority, setPriority] = useState("question");
   const [installationID, setInstallationID] = useState("");
+  const [quotaWarning, setQuotaWarning] = useState("");
 
   async function reload() {
     const [t, i] = await Promise.all([fetchClientTickets(), fetchInstallations()]);
@@ -49,6 +51,13 @@ export default function TicketsPage() {
   useEffect(() => {
     void reload().finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!showForm) return;
+    void fetchTicketQuotaCheck(priority).then((check) => {
+      setQuotaWarning(check?.warning ?? "");
+    });
+  }, [priority, showForm]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -86,6 +95,11 @@ export default function TicketsPage() {
         <form onSubmit={onSubmit} className="mb-6 rounded-lg border border-[#dedbd3] bg-white p-5">
           <h2 className="mb-4 text-[14px] font-medium text-[#18212f]">Новое обращение</h2>
           {error ? <div className="mb-4"><ErrorNote>{error}</ErrorNote></div> : null}
+          {quotaWarning ? (
+            <div className="mb-4 rounded-lg border border-[#f5d9a8] bg-[#fff8eb] px-3 py-2 text-[13px] leading-5 text-[#8a5a00]">
+              {quotaWarning}
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <FieldLabel>Тема</FieldLabel>

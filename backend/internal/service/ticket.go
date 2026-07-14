@@ -47,6 +47,7 @@ type TicketService struct {
 	fallbacks     *repository.FallbackRepo
 	s3Loader      *s3store.Loader
 	notify        *email.Notifier
+	billing       *BillingService
 }
 
 func NewTicketService(
@@ -59,6 +60,7 @@ func NewTicketService(
 	fallbacks *repository.FallbackRepo,
 	s3Loader *s3store.Loader,
 	notify *email.Notifier,
+	billing *BillingService,
 ) *TicketService {
 	return &TicketService{
 		cfg:           cfg,
@@ -70,6 +72,7 @@ func NewTicketService(
 		fallbacks:     fallbacks,
 		s3Loader:      s3Loader,
 		notify:        notify,
+		billing:       billing,
 	}
 }
 
@@ -186,7 +189,10 @@ func (s *TicketService) CreateSupportTicket(ctx context.Context, in CreateSuppor
 	}
 	ticketType := normalizeSupportTicketType(in.Type)
 	priority := normalizeTicketPriority(in.Priority)
-	deadline := slaReactionDeadline(priority)
+	deadline, err := s.reactionDeadline(ctx, in.ClientOrgID, priority)
+	if err != nil {
+		return nil, err
+	}
 	ticket, err := s.tickets.Create(ctx, repository.TicketCreateParams{
 		ClientOrgID:         in.ClientOrgID,
 		InstallationID:      in.InstallationID,
@@ -211,7 +217,17 @@ func (s *TicketService) CreateSupportTicket(ctx context.Context, in CreateSuppor
 	if err := s.routeSupportTicket(ctx, ticket.ID, ticketType, in.InstallationID); err != nil {
 		return nil, err
 	}
+	if s.billing != nil {
+		_ = s.billing.RecordTicketOverage(ctx, in.ClientOrgID, ticket.ID, priority)
+	}
 	return s.tickets.GetByID(ctx, ticket.ID)
+}
+
+func (s *TicketService) reactionDeadline(ctx context.Context, orgID uuid.UUID, priority string) (time.Time, error) {
+	if s.billing != nil {
+		return s.billing.SLAReactionDeadline(ctx, orgID, priority)
+	}
+	return slaReactionDeadline(priority), nil
 }
 
 func normalizeSupportTicketType(raw string) string {
@@ -547,6 +563,9 @@ func (s *TicketService) ApproveOrg(
 	}
 	if err := s.orgs.UpdateReviewStatus(ctx, ticket.ClientOrgID, reviewerID, "active"); err != nil {
 		return err
+	}
+	if s.billing != nil {
+		_ = s.billing.EnsureDefaultSubscription(ctx, ticket.ClientOrgID)
 	}
 	if err := s.tickets.UpdateStatus(ctx, ticket.ID, "closed", nil); err != nil {
 		return err

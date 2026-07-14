@@ -231,6 +231,17 @@ func (r *TicketRepo) CountOpenByClientOrg(ctx context.Context, orgID uuid.UUID) 
 	return n, err
 }
 
+func (r *TicketRepo) CountSupportTicketsInPeriod(ctx context.Context, orgID uuid.UUID, from, to time.Time) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM tickets
+		 WHERE client_org_id = $1 AND type <> 'onboarding'
+		   AND created_at >= $2 AND created_at < $3`,
+		orgID, from, to,
+	).Scan(&n)
+	return n, err
+}
+
 func (r *TicketRepo) CountSLAActiveByClientOrg(ctx context.Context, orgID uuid.UUID) (int, error) {
 	var n int
 	err := r.pool.QueryRow(ctx,

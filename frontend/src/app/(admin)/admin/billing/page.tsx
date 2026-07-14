@@ -1,7 +1,29 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { AdminShell } from "@/components/AdminShell";
 import { DashboardEmpty, DashboardPanel } from "@/components/dashboard/Ui";
+import { fetchAdminBillingOverview, fetchAdminPlans, formatRub, type AdminPlan } from "@/lib/billing";
 
 export default function AdminBillingPage() {
+  const [overview, setOverview] = useState<Awaited<ReturnType<typeof fetchAdminBillingOverview>>>(null);
+  const [clientPlans, setClientPlans] = useState<AdminPlan[]>([]);
+  const [vendorPlans, setVendorPlans] = useState<AdminPlan[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    void Promise.all([
+      fetchAdminBillingOverview(),
+      fetchAdminPlans("client"),
+      fetchAdminPlans("manufacturer"),
+      fetchAdminPlans("partner"),
+    ]).then(([ov, client, mfg, partner]) => {
+      setOverview(ov);
+      setClientPlans(client);
+      setVendorPlans([...mfg, ...partner]);
+    }).finally(() => setLoading(false));
+  }, []);
+
   return (
     <AdminShell breadcrumb="Биллинг">
       <div className="mx-auto max-w-6xl">
@@ -12,31 +34,39 @@ export default function AdminBillingPage() {
           </p>
         </div>
 
+        {loading ? <p className="text-sm text-[#6f6a62]">Загрузка…</p> : null}
+
         <div id="revenue" className="mb-6 grid gap-4 sm:grid-cols-3">
-          <MetricCard label="MRR (все роли)" value="0 ₽" note="После первых оплат" />
-          <MetricCard label="Клиенты" value="0 ₽" note="Подписки эксплуатации" />
-          <MetricCard label="Производители" value="0 ₽" note="Подписки вендоров" />
+          <MetricCard
+            label="MRR (все роли)"
+            value={overview ? formatRub(overview.mrr_total_rub) : "—"}
+            note={`${overview?.active_subscriptions ?? 0} активных подписок`}
+          />
+          <MetricCard
+            label="Клиенты"
+            value={overview ? formatRub(overview.mrr_client_rub) : "—"}
+            note="Подписки эксплуатации"
+          />
+          <MetricCard
+            label="Производители + партнёры"
+            value={overview ? formatRub(overview.mrr_manufacturer_rub + overview.mrr_partner_rub) : "—"}
+            note="Подписки вендоров и канала"
+          />
         </div>
 
         <div id="plans" className="mb-6 grid gap-4 lg:grid-cols-2">
           <DashboardPanel title="Тарифы клиентов">
-            <ul className="space-y-2 text-[13px] leading-5 text-[#5f6b7a]">
-              <li>Free — агент, KB, тикеты без SLA</li>
-              <li>Входной ~25 тыс ₽/мес — квота тикетов</li>
-              <li>Priority ~60 тыс ₽/мес — SLA 8/5</li>
-            </ul>
+            <PlanList plans={clientPlans} />
           </DashboardPanel>
-          <DashboardPanel title="Тарифы производителей">
-            <ul className="space-y-2 text-[13px] leading-5 text-[#5f6b7a]">
-              <li>Базовый ~100–120 тыс ₽/мес</li>
-              <li>Расширенный ~300 тыс ₽/мес</li>
-            </ul>
+          <DashboardPanel title="Тарифы производителей и партнёров">
+            <PlanList plans={vendorPlans} />
           </DashboardPanel>
         </div>
 
         <div id="invoices">
           <DashboardEmpty title="Инвойсы и оплаты — ручной контур">
-            Генерация PDF-счёта, фиксация оплаты суперадмином, квоты тикетов и overage — следующий шаг после первых договоров.
+            Фиксация оплаты через API админки. Назначение тарифа организации — через subscription endpoint.
+            Генерация PDF-счёта — следующий шаг после первых договоров.
           </DashboardEmpty>
         </div>
       </div>
@@ -51,5 +81,24 @@ function MetricCard({ label, value, note }: { label: string; value: string; note
       <div className="mt-1 text-2xl font-medium text-[#18212f]">{value}</div>
       <p className="mt-1 text-[12px] text-[#8a857d]">{note}</p>
     </div>
+  );
+}
+
+function PlanList({ plans }: { plans: AdminPlan[] }) {
+  if (plans.length === 0) {
+    return <p className="text-[13px] text-[#8a857d]">Нет тарифов</p>;
+  }
+  return (
+    <ul className="space-y-2 text-[13px] leading-5 text-[#5f6b7a]">
+      {plans.map((p) => (
+        <li key={p.id}>
+          <span className="font-medium text-[#18212f]">{p.name}</span>
+          {" — "}
+          {formatRub(p.price_monthly_rub)}/мес
+          {p.ticket_quota != null ? ` · квота ${p.ticket_quota} тикетов` : ""}
+          {p.is_archived ? " (архив)" : ""}
+        </li>
+      ))}
+    </ul>
   );
 }

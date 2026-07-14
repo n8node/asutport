@@ -237,6 +237,71 @@ export async function createClientTicket(payload: {
   return { ok: true, ticket: body.data };
 }
 
+export type BillingSummary = {
+  plan: {
+    id: string;
+    name: string;
+    slug: string;
+    price_monthly_rub: number;
+    ticket_quota?: number;
+    overage_price_rub: number;
+  };
+  subscription: {
+    plan_name: string;
+    plan_slug: string;
+    status: string;
+    current_period_start: string;
+    current_period_end: string;
+    price_monthly_rub: number;
+  };
+  tickets_used: number;
+  ticket_quota?: number;
+  overage_price_rub: number;
+  period_start: string;
+  period_end: string;
+  recent_payments: Array<{
+    id: string;
+    type: string;
+    amount_rub: number;
+    status: string;
+    note: string;
+    created_at: string;
+  }>;
+  public_plans: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    price_monthly_rub: number;
+    ticket_quota?: number;
+    overage_price_rub: number;
+  }>;
+};
+
+export type TicketQuotaCheck = {
+  allowed: boolean;
+  is_overage: boolean;
+  warning?: string;
+  tickets_used: number;
+  ticket_quota?: number;
+  overage_price_rub: number;
+  plan_name: string;
+  priority: string;
+};
+
+export async function fetchClientBilling(): Promise<BillingSummary | null> {
+  const response = await authFetch("/api/v1/client/billing");
+  const body = (await response.json()) as ApiOne<BillingSummary>;
+  if (!response.ok || !body.data) return null;
+  return body.data;
+}
+
+export async function fetchTicketQuotaCheck(priority: string): Promise<TicketQuotaCheck | null> {
+  const response = await authFetch(`/api/v1/client/billing/quota-check?priority=${encodeURIComponent(priority)}`);
+  const body = (await response.json()) as ApiOne<TicketQuotaCheck>;
+  if (!response.ok || !body.data) return null;
+  return body.data;
+}
+
 export const CRITICALITY_LABELS: Record<Installation["criticality"], string> = {
   continuous: "Непрерывное производство",
   batch: "Периодические пуски",

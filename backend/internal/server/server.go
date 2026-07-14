@@ -21,6 +21,7 @@ type Handlers struct {
 	AdminUser AdminUserHandlers
 	APIKey    APIKeyHandlers
 	Admin     AdminHandlers
+	Billing   BillingHandlers
 	AuthDeps  appmw.AuthDeps
 	LoginRL   *appmw.LoginRateLimiter
 }
@@ -107,6 +108,19 @@ type AdminHandlers struct {
 	SMTPTest    http.HandlerFunc
 }
 
+type BillingHandlers struct {
+	ClientSummary         http.HandlerFunc
+	ClientQuotaCheck      http.HandlerFunc
+	VendorSummary         http.HandlerFunc
+	AdminOverview         http.HandlerFunc
+	AdminListPlans        http.HandlerFunc
+	AdminCreatePlan       http.HandlerFunc
+	AdminUpdatePlan       http.HandlerFunc
+	AdminAssignSubscription http.HandlerFunc
+	AdminRecordPayment    http.HandlerFunc
+	AdminListPayments     http.HandlerFunc
+}
+
 type Options struct {
 	Logger      *slog.Logger
 	Handlers    Handlers
@@ -189,11 +203,14 @@ func New(opts Options) http.Handler {
 				r.Delete("/supply-records/{recordID}", h.Client.DeleteSupplyRecord)
 				r.Get("/tickets", h.Client.ListTickets)
 				r.Post("/tickets", h.Client.CreateTicket)
+				r.Get("/billing", h.Billing.ClientSummary)
+				r.Get("/billing/quota-check", h.Billing.ClientQuotaCheck)
 			})
 
 			r.Route("/vendor", func(r chi.Router) {
 				r.Get("/dashboard", h.Vendor.Dashboard)
 				r.Get("/tickets", h.Vendor.ListTickets)
+				r.Get("/billing", h.Billing.VendorSummary)
 			})
 
 			r.Group(func(r chi.Router) {
@@ -205,6 +222,13 @@ func New(opts Options) http.Handler {
 				r.Get("/admin/orgs/{orgID}", h.AdminOrg.Get)
 				r.Patch("/admin/orgs/{orgID}", h.AdminOrg.Patch)
 				r.Patch("/admin/orgs/{orgID}/review", h.AdminOrg.UpdateReview)
+				r.Get("/admin/billing/overview", h.Billing.AdminOverview)
+				r.Get("/admin/plans", h.Billing.AdminListPlans)
+				r.Post("/admin/plans", h.Billing.AdminCreatePlan)
+				r.Patch("/admin/plans/{planID}", h.Billing.AdminUpdatePlan)
+				r.Post("/admin/orgs/{orgID}/subscription", h.Billing.AdminAssignSubscription)
+				r.Get("/admin/orgs/{orgID}/payments", h.Billing.AdminListPayments)
+				r.Post("/admin/payments", h.Billing.AdminRecordPayment)
 				r.Get("/admin/users", h.AdminUser.List)
 				r.Get("/admin/users/{userID}", h.AdminUser.Get)
 				r.Patch("/admin/users/{userID}", h.AdminUser.PatchActive)
