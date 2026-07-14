@@ -8,17 +8,26 @@ import { DashboardEmpty, DashboardPanel } from "@/components/dashboard/Ui";
 import {
   TICKET_PRIORITY_LABELS,
   TICKET_STATUS_LABELS,
+  ballOwnerLabel,
+  fetchClientMeProfile,
   fetchClientTickets,
   type ClientTicket,
 } from "@/lib/client-dashboard";
 
 export default function SlaPage() {
   const [tickets, setTickets] = useState<ClientTicket[]>([]);
+  const [clientOrgID, setClientOrgID] = useState<string>();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    void fetchClientTickets()
-      .then((items) => setTickets(items.filter((t) => !["resolved", "closed"].includes(t.status))))
+    void Promise.all([
+      fetchClientTickets(),
+      fetchClientMeProfile(),
+    ])
+      .then(([items, me]) => {
+        setTickets(items.filter((t) => !["resolved", "closed"].includes(t.status)));
+        setClientOrgID(me?.org?.id);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -35,7 +44,7 @@ export default function SlaPage() {
 
       <DashboardPanel title="Мяч на стороне">
         <p className="text-[13px] leading-5 text-[#6f6a62]">
-          Показывает, чья очередь отвечать: ваша организация, платформа или производитель. Детали — в карточке тикета.
+          Показывает, чья очередь отвечать: ваша организация, платформа или производитель.
         </p>
       </DashboardPanel>
 
@@ -58,6 +67,10 @@ export default function SlaPage() {
                 <div className="font-medium text-[#18212f]">{t.subject}</div>
                 <div className="mt-1 text-[12px] text-[#8a857d]">
                   {TICKET_PRIORITY_LABELS[t.priority] || t.priority} · {TICKET_STATUS_LABELS[t.status] || t.status}
+                </div>
+                <div className="mt-1 text-[12px] text-[#6f6a62]">
+                  Мяч: {ballOwnerLabel(t, clientOrgID)}
+                  {t.assigned_target_org_name ? ` · Адресат: ${t.assigned_target_org_name}` : ""}
                 </div>
               </div>
               <div className="text-right">

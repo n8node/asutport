@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -168,6 +169,28 @@ func (r *OrgRepo) UpdateReviewStatus(ctx context.Context, orgID, reviewerID uuid
 		return ErrNotFound
 	}
 	return nil
+}
+
+// FindActiveByName matches organization display name against active orgs of given types.
+func (r *OrgRepo) FindActiveByName(ctx context.Context, name string, orgTypes ...string) (*models.Organization, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(orgTypes) == 0 {
+		return nil, ErrNotFound
+	}
+	q := `SELECT id, name, type::text, slug, is_active, legal_name, inn, website, contact_phone,
+		review_comment, is_personal, review_status::text, reviewed_at, reviewed_by, onboarding_ticket_id, created_at, updated_at
+		FROM organizations
+		WHERE review_status = 'active'
+		  AND type::text = ANY($2)
+		  AND (name ILIKE $1 OR legal_name ILIKE $1)
+		ORDER BY created_at ASC
+		LIMIT 1`
+	row := r.pool.QueryRow(ctx, q, name, orgTypes)
+	o, err := scanOrg(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return o, err
 }
 
 func scanOrg(row pgx.Row) (*models.Organization, error) {

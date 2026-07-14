@@ -181,6 +181,7 @@ type Ticket struct {
 	Priority             string
 	Status               string
 	BallOwnerOrgID       *uuid.UUID
+	AssignedTargetOrgID  *uuid.UUID
 	Subject              string
 	SLAReactionDeadline  *time.Time
 	CreatedByUserID      *uuid.UUID
@@ -190,6 +191,16 @@ type Ticket struct {
 	ClientOrgType        string
 	ClientOrgINN         string
 	ClientReviewStatus   string
+	BallOwnerOrgName     string
+	AssignedTargetName   string
+}
+
+type FallbackLogEntry struct {
+	ID             uuid.UUID
+	TicketID       uuid.UUID
+	NeededRole     string
+	MissingOrgName string
+	CreatedAt      time.Time
 }
 
 type Installation struct {

@@ -38,13 +38,15 @@ var allowedAttachmentTypes = map[string]bool{
 }
 
 type TicketService struct {
-	cfg       *config.Config
-	tickets   *repository.TicketRepo
-	orgs      *repository.OrgRepo
-	members   *repository.OrgMemberRepo
-	users     *repository.UserRepo
-	s3Loader  *s3store.Loader
-	notify    *email.Notifier
+	cfg           *config.Config
+	tickets       *repository.TicketRepo
+	orgs          *repository.OrgRepo
+	members       *repository.OrgMemberRepo
+	users         *repository.UserRepo
+	installations *repository.InstallationRepo
+	fallbacks     *repository.FallbackRepo
+	s3Loader      *s3store.Loader
+	notify        *email.Notifier
 }
 
 func NewTicketService(
@@ -53,17 +55,21 @@ func NewTicketService(
 	orgs *repository.OrgRepo,
 	members *repository.OrgMemberRepo,
 	users *repository.UserRepo,
+	installations *repository.InstallationRepo,
+	fallbacks *repository.FallbackRepo,
 	s3Loader *s3store.Loader,
 	notify *email.Notifier,
 ) *TicketService {
 	return &TicketService{
-		cfg:      cfg,
-		tickets:  tickets,
-		orgs:     orgs,
-		members:  members,
-		users:    users,
-		s3Loader: s3Loader,
-		notify:   notify,
+		cfg:           cfg,
+		tickets:       tickets,
+		orgs:          orgs,
+		members:       members,
+		users:         users,
+		installations: installations,
+		fallbacks:     fallbacks,
+		s3Loader:      s3Loader,
+		notify:        notify,
 	}
 }
 
@@ -119,10 +125,24 @@ func (s *TicketService) CreateOnboardingIfNeeded(ctx context.Context, orgID, use
 }
 
 func (s *TicketService) CanAccess(ctx context.Context, ticket *models.Ticket, userID, orgID uuid.UUID, isSuperAdmin bool) bool {
-	if isSuperAdmin && ticket.Type == "onboarding" {
+	if isSuperAdmin {
 		return true
 	}
-	return ticket.ClientOrgID == orgID
+	if ticket.ClientOrgID == orgID {
+		return true
+	}
+	if ticket.AssignedTargetOrgID != nil && *ticket.AssignedTargetOrgID == orgID {
+		return true
+	}
+	return false
+}
+
+func (s *TicketService) ListByAssignedTarget(ctx context.Context, orgID uuid.UUID, limit, offset int) ([]models.Ticket, int, error) {
+	return s.tickets.ListByAssignedTarget(ctx, orgID, limit, offset)
+}
+
+func (s *TicketService) CountOpenByAssignedTarget(ctx context.Context, orgID uuid.UUID) (int, error) {
+	return s.tickets.CountOpenByAssignedTarget(ctx, orgID)
 }
 
 func (s *TicketService) GetOnboardingForOrg(ctx context.Context, orgID uuid.UUID) (*models.Ticket, error) {
@@ -186,6 +206,9 @@ func (s *TicketService) CreateSupportTicket(ctx context.Context, in CreateSuppor
 		text = in.Subject
 	}
 	if _, err := s.tickets.AddEvent(ctx, ticket.ID, "message", &in.CreatedByUserID, &in.ClientOrgID, repository.EventPayloadText(text)); err != nil {
+		return nil, err
+	}
+	if err := s.routeSupportTicket(ctx, ticket.ID, ticketType, in.InstallationID); err != nil {
 		return nil, err
 	}
 	return s.tickets.GetByID(ctx, ticket.ID)
@@ -253,10 +276,22 @@ func (s *TicketService) PostMessage(
 	}
 	var ballOwner *uuid.UUID
 	var status string
-	if isSuperAdmin {
+	switch ticketActorRole(ticket, actorOrgID, isSuperAdmin) {
+	case "platform":
 		status = "waiting_client"
 		ballOwner = &ticket.ClientOrgID
-	} else {
+	case "vendor":
+		status = "waiting_client"
+		ballOwner = &ticket.ClientOrgID
+	case "client":
+		if ticket.AssignedTargetOrgID != nil {
+			status = "waiting_vendor"
+			ballOwner = ticket.AssignedTargetOrgID
+		} else {
+			status = "waiting_platform"
+			ballOwner = nil
+		}
+	default:
 		status = "waiting_platform"
 		ballOwner = nil
 	}
@@ -265,6 +300,34 @@ func (s *TicketService) PostMessage(
 	}
 	_ = s.notifyTicketMessage(ctx, ticket, actorUserID, isSuperAdmin, text)
 	return event, nil
+}
+
+func (s *TicketService) ResolveTicket(
+	ctx context.Context,
+	ticket *models.Ticket,
+	actorUserID, actorOrgID uuid.UUID,
+	isSuperAdmin bool,
+	note string,
+) error {
+	if ticket.Status == "closed" || ticket.Status == "resolved" {
+		return fmt.Errorf("ticket is already closed")
+	}
+	role := ticketActorRole(ticket, actorOrgID, isSuperAdmin)
+	if role == "" {
+		return fmt.Errorf("access denied")
+	}
+	note = strings.TrimSpace(note)
+	if note == "" {
+		note = "Обращение решено."
+	}
+	var actorOrgPtr *uuid.UUID
+	if !isSuperAdmin {
+		actorOrgPtr = &actorOrgID
+	}
+	if _, err := s.tickets.AddEvent(ctx, ticket.ID, "resolved", &actorUserID, actorOrgPtr, repository.EventPayloadResolved(note)); err != nil {
+		return err
+	}
+	return s.tickets.UpdateStatus(ctx, ticket.ID, "resolved", nil)
 }
 
 type PresignAttachmentInput struct {
@@ -428,9 +491,18 @@ func (s *TicketService) completeAttachmentRecord(
 	}
 	var ballOwner *uuid.UUID
 	status := "waiting_platform"
-	if isSuperAdmin {
+	switch ticketActorRole(ticket, orgID, isSuperAdmin) {
+	case "platform":
 		status = "waiting_client"
 		ballOwner = &ticket.ClientOrgID
+	case "vendor":
+		status = "waiting_client"
+		ballOwner = &ticket.ClientOrgID
+	case "client":
+		if ticket.AssignedTargetOrgID != nil {
+			status = "waiting_vendor"
+			ballOwner = ticket.AssignedTargetOrgID
+		}
 	}
 	if err := s.tickets.UpdateStatus(ctx, ticket.ID, status, ballOwner); err != nil {
 		return nil, err

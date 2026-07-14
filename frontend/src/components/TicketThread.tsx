@@ -31,6 +31,11 @@ type TicketEvent = {
     filename?: string;
     attachment_id?: string;
     rationale?: string;
+    target_org_name?: string;
+    needed_role?: string;
+    missing_org_name?: string;
+    message?: string;
+    note?: string;
   };
   actor_name?: string;
   actor_email?: string;
@@ -40,7 +45,7 @@ type TicketEvent = {
 
 type TicketThreadProps = {
   ticketID: string;
-  mode: "client" | "admin";
+  mode: "client" | "admin" | "vendor";
   context?: "onboarding" | "support";
   onTicketUpdate?: (ticket: Ticket) => void;
 };
@@ -53,6 +58,7 @@ export function TicketThread({ ticketID, mode, context = "support", onTicketUpda
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [rejectRationale, setRejectRationale] = useState("");
+  const [resolveNote, setResolveNote] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -195,6 +201,32 @@ export function TicketThread({ ticketID, mode, context = "support", onTicketUpda
     }
   }
 
+  async function resolveTicket() {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await authFetch(`/api/v1/tickets/${ticketID}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ note: resolveNote.trim() }),
+      });
+      const body = (await response.json()) as { data?: Ticket; error?: { message?: string } };
+      if (!response.ok) {
+        setError(body.error?.message || "Не удалось закрыть обращение");
+        return;
+      }
+      if (body.data) {
+        setTicket(body.data);
+        onTicketUpdate?.(body.data);
+      }
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function openAttachment(attachmentID: string) {
     const response = await authFetch(`/api/v1/tickets/${ticketID}/attachments/${attachmentID}/url`);
     const body = (await response.json()) as { data?: { url?: string }; error?: { message?: string } };
@@ -206,31 +238,41 @@ export function TicketThread({ ticketID, mode, context = "support", onTicketUpda
   }
 
   const isOnboarding = context === "onboarding" && mode === "client";
+  const isVendor = mode === "vendor";
 
   if (status === "loading") {
-    return <p className="text-sm text-[#6f6a62]">{isOnboarding ? "Загружаем переписку..." : "Загружаем тикет..."}</p>;
+    return (
+      <p className={`text-sm ${isVendor ? "text-[#93A0AC]" : "text-[#6f6a62]"}`}>
+        {isOnboarding ? "Загружаем переписку..." : "Загружаем тикет..."}
+      </p>
+    );
   }
   if (status === "error") {
-    return <p className="text-sm text-[#b42318]">{error || "Ошибка загрузки"}</p>;
+    return <p className="text-sm text-[#E5484D]">{error || "Ошибка загрузки"}</p>;
   }
 
-  const closed = ticket?.status === "closed";
+  const closed = ticket?.status === "closed" || ticket?.status === "resolved";
+  const panel = isVendor ? "rounded-lg border border-[#2A3138] bg-[#1B2025]" : "rounded-lg border border-[#dedbd3] bg-white";
+  const muted = isVendor ? "text-[#93A0AC]" : "text-[#6f6a62]";
+  const textMain = isVendor ? "text-[#E6EAEE]" : "text-[#18212f]";
+  const eventBox = isVendor ? "rounded-lg border border-[#2A3138] bg-[#21272D]" : "rounded-lg border border-[#ebe9e4] bg-[#faf9f7]";
+  const inputClass = isVendor
+    ? "w-full rounded-lg border border-[#38414A] bg-[#131619] px-3 py-2 text-[13px] text-[#E6EAEE] outline-none focus:border-[#3FC8B7]"
+    : "w-full rounded-lg border border-[#d7d2ca] px-3 py-2 text-[13px] outline-none focus:border-[#185fa5]";
 
   return (
     <div className="space-y-4">
-      <header className="rounded-lg border border-[#dedbd3] bg-white p-4">
-        <h2 className="text-lg font-semibold text-[#18212f]">
+      <header className={`${panel} p-4`}>
+        <h2 className={`text-lg font-semibold ${textMain}`}>
           {isOnboarding ? "Переписка с платформой" : ticket?.subject}
         </h2>
-        <div className="mt-2 flex flex-wrap gap-3 text-[12px] text-[#6f6a62]">
+        <div className={`mt-2 flex flex-wrap gap-3 text-[12px] ${muted}`}>
           <span>
             {isOnboarding ? "Заявка" : "Статус"}: {isOnboarding ? onboardingStatusLabel(ticket) : statusLabel(ticket?.status)}
           </span>
-          {mode === "client" && ticket?.client_org_name ? (
-            <span>{ticket.client_org_name}</span>
-          ) : ticket?.client_org_inn ? (
-            <span>ИНН: {ticket.client_org_inn}</span>
-          ) : null}
+          {mode === "vendor" && ticket?.client_org_name ? <span>Клиент: {ticket.client_org_name}</span> : null}
+          {mode === "client" && ticket?.client_org_name ? <span>{ticket.client_org_name}</span> : null}
+          {mode === "admin" && ticket?.client_org_inn ? <span>ИНН: {ticket.client_org_inn}</span> : null}
           {!isOnboarding && ticket?.client_review_status ? (
             <span>Проверка org: {ticket.client_review_status}</span>
           ) : null}
@@ -254,31 +296,47 @@ export function TicketThread({ ticketID, mode, context = "support", onTicketUpda
         ) : null}
       </header>
 
-      <section className="rounded-lg border border-[#dedbd3] bg-white">
+      <section className={panel}>
         <div className="max-h-[480px] space-y-3 overflow-y-auto p-4">
           {events.map((event) => (
-            <article key={event.id} className="rounded-lg border border-[#ebe9e4] bg-[#faf9f7] px-3 py-2.5">
-              <div className="mb-1 flex flex-wrap items-center gap-2 text-[11px] text-[#8a857d]">
+            <article key={event.id} className={`${eventBox} px-3 py-2.5`}>
+              <div className={`mb-1 flex flex-wrap items-center gap-2 text-[11px] ${isVendor ? "text-[#5F6C78]" : "text-[#8a857d]"}`}>
                 <span>{event.is_platform ? "Платформа ASUTPORT" : event.actor_name || event.actor_email || "Участник"}</span>
                 <span>·</span>
                 <span>{formatDate(event.created_at)}</span>
               </div>
               {event.kind === "message" ? (
-                <p className="whitespace-pre-wrap text-[13px] leading-6 text-[#18212f]">{event.payload?.text}</p>
+                <p className={`whitespace-pre-wrap text-[13px] leading-6 ${textMain}`}>{event.payload?.text}</p>
               ) : null}
               {event.kind === "attachment_added" ? (
                 <button
                   type="button"
-                  className="text-[13px] font-medium text-[#185fa5] hover:underline"
+                  className={`text-[13px] font-medium hover:underline ${isVendor ? "text-[#3FC8B7]" : "text-[#185fa5]"}`}
                   onClick={() => void openAttachment(event.payload?.attachment_id || "")}
                 >
                   📎 {event.payload?.filename || "Вложение"}
                 </button>
               ) : null}
               {event.kind === "org_approved" || event.kind === "org_rejected" ? (
-                <p className="text-[13px] leading-6 text-[#18212f]">
+                <p className={`text-[13px] leading-6 ${textMain}`}>
                   {event.kind === "org_approved" ? "Организация активирована." : "Организация отклонена."}
                   {event.payload?.rationale ? ` ${event.payload.rationale}` : ""}
+                </p>
+              ) : null}
+              {event.kind === "escalated" ? (
+                <p className={`text-[13px] leading-6 ${textMain}`}>
+                  Эскалация производителю: {event.payload?.target_org_name || "контрагент"}.
+                </p>
+              ) : null}
+              {event.kind === "fallback" ? (
+                <p className={`text-[13px] leading-6 ${textMain}`}>
+                  {event.payload?.message ||
+                    `Сторона «${event.payload?.missing_org_name || "контрагент"}» не подключена к платформе.`}
+                </p>
+              ) : null}
+              {event.kind === "resolved" ? (
+                <p className={`text-[13px] leading-6 ${textMain}`}>
+                  Обращение решено.{event.payload?.note ? ` ${event.payload.note}` : ""}
                 </p>
               ) : null}
             </article>
@@ -286,24 +344,34 @@ export function TicketThread({ ticketID, mode, context = "support", onTicketUpda
         </div>
 
         {!closed ? (
-          <div className="border-t border-[#ebe9e4] p-4">
+          <div className={`border-t p-4 ${isVendor ? "border-[#2A3138]" : "border-[#ebe9e4]"}`}>
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               rows={3}
               placeholder="Напишите сообщение..."
-              className="w-full rounded-lg border border-[#d7d2ca] px-3 py-2 text-[13px] outline-none focus:border-[#185fa5]"
+              className={inputClass}
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 disabled={busy || !text.trim()}
                 onClick={() => void sendMessage()}
-                className="rounded-lg bg-[#18212f] px-4 py-2 text-[12px] font-medium text-white disabled:opacity-50"
+                className={
+                  isVendor
+                    ? "rounded-lg bg-[#3FC8B7] px-4 py-2 text-[12px] font-medium text-[#0B2723] disabled:opacity-50"
+                    : "rounded-lg bg-[#18212f] px-4 py-2 text-[12px] font-medium text-white disabled:opacity-50"
+                }
               >
                 {busy ? "Отправка..." : "Отправить"}
               </button>
-              <label className="cursor-pointer rounded-lg border border-[#d7d2ca] px-4 py-2 text-[12px] hover:bg-[#ebe9e4]">
+              <label
+                className={
+                  isVendor
+                    ? "cursor-pointer rounded-lg border border-[#38414A] px-4 py-2 text-[12px] text-[#E6EAEE] hover:bg-[#21272D]"
+                    : "cursor-pointer rounded-lg border border-[#d7d2ca] px-4 py-2 text-[12px] hover:bg-[#ebe9e4]"
+                }
+              >
                 Прикрепить файл
                 <input
                   ref={fileRef}
@@ -318,15 +386,40 @@ export function TicketThread({ ticketID, mode, context = "support", onTicketUpda
                   }}
                 />
               </label>
-              <span className="text-[11px] text-[#8a857d]">PDF, PNG, JPEG до 20 МБ</span>
+              <span className={`text-[11px] ${muted}`}>PDF, PNG, JPEG до 20 МБ</span>
             </div>
           </div>
         ) : (
-          <div className="border-t border-[#ebe9e4] p-4 text-[13px] text-[#6f6a62]">
-            {isOnboarding ? "Заявка на подключение закрыта." : "Тикет закрыт."}
+          <div className={`border-t p-4 text-[13px] ${muted} ${isVendor ? "border-[#2A3138]" : "border-[#ebe9e4]"}`}>
+            {isOnboarding ? "Заявка на подключение закрыта." : ticket?.status === "resolved" ? "Обращение решено." : "Тикет закрыт."}
           </div>
         )}
       </section>
+
+      {mode === "vendor" && !closed ? (
+        <section className={`${panel} p-4`}>
+          <h2 className={`text-[12px] font-medium uppercase tracking-[0.08em] ${isVendor ? "text-[#5F6C78]" : "text-[#8a857d]"}`}>
+            Закрыть обращение
+          </h2>
+          <textarea
+            value={resolveNote}
+            onChange={(e) => setResolveNote(e.target.value)}
+            rows={2}
+            placeholder="Комментарий к решению (необязательно)"
+            className={`mt-3 ${inputClass}`}
+          />
+          <div className="mt-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void resolveTicket()}
+              className="rounded-lg border border-[#4CC38A] px-4 py-2 text-[12px] font-medium text-[#4CC38A] disabled:opacity-50"
+            >
+              Отметить решённым
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {mode === "admin" && ticket?.client_review_status === "pending_review" && !closed ? (
         <section className="rounded-lg border border-[#dedbd3] bg-white p-4">
@@ -385,6 +478,10 @@ function statusLabel(status?: string) {
       return "Ожидает клиента";
     case "waiting_platform":
       return "Ожидает платформу";
+    case "waiting_vendor":
+      return "Ожидает вендора";
+    case "resolved":
+      return "Решён";
     case "closed":
       return "Закрыт";
     default:

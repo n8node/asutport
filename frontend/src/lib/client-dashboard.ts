@@ -1,6 +1,7 @@
 import { authFetch } from "@/lib/auth-session";
 
 export type ClientOrgProfile = {
+  id?: string;
   name: string;
   legal_name?: string;
   inn?: string;
@@ -95,10 +96,26 @@ export type ClientTicket = {
   subject: string;
   installation_id?: string;
   ball_owner_org_id?: string;
+  ball_owner_org_name?: string;
+  assigned_target_org_id?: string;
+  assigned_target_org_name?: string;
   sla_reaction_deadline?: string;
   created_at: string;
   updated_at: string;
 };
+
+export function ballOwnerLabel(ticket: Pick<ClientTicket, "ball_owner_org_id" | "ball_owner_org_name">, clientOrgID?: string): string {
+  if (!ticket.ball_owner_org_id) {
+    return "Платформа ASUTPORT";
+  }
+  if (clientOrgID && ticket.ball_owner_org_id === clientOrgID) {
+    return "Ваша организация";
+  }
+  if (ticket.ball_owner_org_name) {
+    return ticket.ball_owner_org_name;
+  }
+  return "Контрагент";
+}
 
 type ApiList<T> = { data?: T[]; meta?: { total?: number }; error?: { message?: string } };
 type ApiOne<T> = { data?: T; error?: { message?: string } };

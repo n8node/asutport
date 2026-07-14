@@ -430,6 +430,45 @@ func (h *TicketHandler) ensureTicketWriteAccess(w http.ResponseWriter, r *http.R
 	return nil
 }
 
+type resolveTicketReq struct {
+	Note string `json:"note"`
+}
+
+func (h *TicketHandler) Resolve(w http.ResponseWriter, r *http.Request) {
+	p, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing authentication")
+		return
+	}
+	ticketID, err := uuid.Parse(chi.URLParam(r, "ticketID"))
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid ticket id")
+		return
+	}
+	ticket, err := h.loadAuthorizedTicket(w, r, ticketID, p)
+	if err != nil || ticket == nil {
+		return
+	}
+	if ticket.Type == "onboarding" {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid ticket type")
+		return
+	}
+	if err := h.ensureTicketWriteAccess(w, r, ticket, p); err != nil {
+		return
+	}
+	var req resolveTicketReq
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+	if err := h.tickets.ResolveTicket(r.Context(), ticket, p.UserID, p.OrgID, p.IsSuperAdmin(), req.Note); err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", userFacingErr(err))
+		return
+	}
+	updated, _ := h.tickets.GetByID(r.Context(), ticket.ID)
+	attachments, _ := h.tickets.ListAttachments(r.Context(), ticket.ID)
+	WriteJSON(w, http.StatusOK, map[string]any{"data": ticketDTO(updated, attachments)})
+}
+
 func ticketDTO(t *models.Ticket, attachments []models.TicketAttachment) map[string]any {
 	if t == nil {
 		return nil
@@ -457,6 +496,11 @@ func ticketDTO(t *models.Ticket, attachments []models.TicketAttachment) map[stri
 	}
 	if t.BallOwnerOrgID != nil {
 		dto["ball_owner_org_id"] = t.BallOwnerOrgID.String()
+		dto["ball_owner_org_name"] = t.BallOwnerOrgName
+	}
+	if t.AssignedTargetOrgID != nil {
+		dto["assigned_target_org_id"] = t.AssignedTargetOrgID.String()
+		dto["assigned_target_org_name"] = t.AssignedTargetName
 	}
 	if t.CreatedByUserID != nil {
 		dto["created_by_user_id"] = t.CreatedByUserID.String()

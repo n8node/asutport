@@ -87,16 +87,18 @@ func main() {
 	adminOrgs := repository.NewAdminOrgRepo(pool)
 	regVerify := repository.NewRegistrationVerificationRepo(pool)
 	ticketRepo := repository.NewTicketRepo(pool)
+	fallbackRepo := repository.NewFallbackRepo(pool)
 	emailLoader := email.NewLoader(adminSettings, cfg.JWTSecret)
 	emailNotify := email.NewNotifier(emailLoader)
 	installations := repository.NewInstallationRepo(pool)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
-	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, s3Loader, emailNotify)
+	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, installations, fallbackRepo, s3Loader, emailNotify)
 
 	authH := handler.NewAuthHandler(cfg, users, orgs, members, sessions, regVerify, emailLoader, emailNotify, ticketSvc, authSvc)
 	orgH := handler.NewOrgHandler(members, orgs)
 	ticketH := handler.NewTicketHandler(ticketSvc, orgs)
 	clientH := handler.NewClientHandler(installations, ticketSvc, orgs)
+	vendorH := handler.NewVendorHandler(ticketSvc, orgs)
 	adminOrgH := handler.NewAdminOrgHandler(adminOrgs, orgs)
 	adminUserH := handler.NewAdminUserHandler(adminUsers)
 	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
@@ -139,6 +141,7 @@ func main() {
 				UploadAttachment:    ticketH.UploadAttachment,
 				CompleteAttachment:  ticketH.CompleteAttachment,
 				AttachmentURL:       ticketH.AttachmentURL,
+				Resolve:             ticketH.Resolve,
 				ListOnboardingAdmin: ticketH.ListOnboardingAdmin,
 				ApproveOrg:          ticketH.ApproveOrg,
 				RejectOrg:           ticketH.RejectOrg,
@@ -157,6 +160,10 @@ func main() {
 				DeleteSupplyRecord: clientH.DeleteSupplyRecord,
 				ListTickets:        clientH.ListTickets,
 				CreateTicket:       clientH.CreateTicket,
+			},
+			Vendor: server.VendorHandlers{
+				Dashboard:   vendorH.Dashboard,
+				ListTickets: vendorH.ListTickets,
 			},
 			AdminOrg: server.AdminOrgHandlers{
 				List:         adminOrgH.List,

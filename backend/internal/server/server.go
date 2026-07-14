@@ -16,6 +16,7 @@ type Handlers struct {
 	Org       OrgHandlers
 	Ticket    TicketHandlers
 	Client    ClientHandlers
+	Vendor    VendorHandlers
 	AdminOrg  AdminOrgHandlers
 	AdminUser AdminUserHandlers
 	APIKey    APIKeyHandlers
@@ -48,6 +49,7 @@ type TicketHandlers struct {
 	UploadAttachment    http.HandlerFunc
 	CompleteAttachment  http.HandlerFunc
 	AttachmentURL       http.HandlerFunc
+	Resolve             http.HandlerFunc
 	ListOnboardingAdmin http.HandlerFunc
 	ApproveOrg          http.HandlerFunc
 	RejectOrg           http.HandlerFunc
@@ -67,6 +69,11 @@ type ClientHandlers struct {
 	DeleteSupplyRecord http.HandlerFunc
 	ListTickets        http.HandlerFunc
 	CreateTicket       http.HandlerFunc
+}
+
+type VendorHandlers struct {
+	Dashboard   http.HandlerFunc
+	ListTickets http.HandlerFunc
 }
 
 type AdminOrgHandlers struct {
@@ -161,6 +168,7 @@ func New(opts Options) http.Handler {
 				r.Get("/", h.Ticket.Get)
 				r.Get("/events", h.Ticket.ListEvents)
 				r.Post("/messages", h.Ticket.PostMessage)
+				r.Post("/resolve", h.Ticket.Resolve)
 				r.Post("/attachments/presign", h.Ticket.PresignAttachment)
 				r.Post("/attachments/upload", h.Ticket.UploadAttachment)
 				r.Post("/attachments/{attachmentID}/complete", h.Ticket.CompleteAttachment)
@@ -181,6 +189,11 @@ func New(opts Options) http.Handler {
 				r.Delete("/supply-records/{recordID}", h.Client.DeleteSupplyRecord)
 				r.Get("/tickets", h.Client.ListTickets)
 				r.Post("/tickets", h.Client.CreateTicket)
+			})
+
+			r.Route("/vendor", func(r chi.Router) {
+				r.Get("/dashboard", h.Vendor.Dashboard)
+				r.Get("/tickets", h.Vendor.ListTickets)
 			})
 
 			r.Group(func(r chi.Router) {

@@ -431,3 +431,27 @@ func normalizeProductKind(raw string) string {
 		return "other"
 	}
 }
+
+// RoutingHintNames returns manufacturer/supplier/integrator labels from installation profile.
+func (r *InstallationRepo) RoutingHintNames(ctx context.Context, installationID uuid.UUID) (manufacturer, supplier, integrator string, err error) {
+	products, err := r.ListProducts(ctx, installationID)
+	if err != nil {
+		return "", "", "", err
+	}
+	if len(products) > 0 {
+		manufacturer = strings.TrimSpace(products[0].ManufacturerName)
+	}
+	q := `SELECT s.supplier_name, s.integrator_name
+		FROM supply_records s
+		JOIN installation_products p ON p.id = s.installation_product_id
+		WHERE p.installation_id = $1
+		ORDER BY s.created_at ASC
+		LIMIT 1`
+	row := r.pool.QueryRow(ctx, q, installationID)
+	var sup, integ string
+	if scanErr := row.Scan(&sup, &integ); scanErr == nil {
+		supplier = strings.TrimSpace(sup)
+		integrator = strings.TrimSpace(integ)
+	}
+	return manufacturer, supplier, integrator, nil
+}

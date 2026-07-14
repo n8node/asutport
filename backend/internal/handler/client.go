@@ -595,6 +595,11 @@ func clientTicketDTO(t *models.Ticket) map[string]any {
 	}
 	if t.BallOwnerOrgID != nil {
 		dto["ball_owner_org_id"] = t.BallOwnerOrgID.String()
+		dto["ball_owner_org_name"] = t.BallOwnerOrgName
+	}
+	if t.AssignedTargetOrgID != nil {
+		dto["assigned_target_org_id"] = t.AssignedTargetOrgID.String()
+		dto["assigned_target_org_name"] = t.AssignedTargetName
 	}
 	if t.SLAReactionDeadline != nil {
 		dto["sla_reaction_deadline"] = t.SLAReactionDeadline

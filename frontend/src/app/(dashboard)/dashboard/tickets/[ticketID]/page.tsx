@@ -5,7 +5,13 @@ import { useParams } from "next/navigation";
 import { DashboardShell } from "@/components/DashboardShell";
 import { TicketThread } from "@/components/TicketThread";
 import { SlaTimer } from "@/components/dashboard/SlaTimer";
-import { TICKET_PRIORITY_LABELS, TICKET_STATUS_LABELS, TICKET_TYPE_LABELS } from "@/lib/client-dashboard";
+import {
+  TICKET_PRIORITY_LABELS,
+  TICKET_STATUS_LABELS,
+  TICKET_TYPE_LABELS,
+  ballOwnerLabel,
+  fetchClientMeProfile,
+} from "@/lib/client-dashboard";
 import { useEffect, useState } from "react";
 import { authFetch } from "@/lib/auth-session";
 
@@ -15,6 +21,10 @@ type Ticket = {
   status: string;
   type: string;
   priority: string;
+  ball_owner_org_id?: string;
+  ball_owner_org_name?: string;
+  assigned_target_org_id?: string;
+  assigned_target_org_name?: string;
   sla_reaction_deadline?: string;
 };
 
@@ -22,6 +32,11 @@ export default function TicketDetailPage() {
   const params = useParams();
   const ticketID = String(params.ticketID || "");
   const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [clientOrgID, setClientOrgID] = useState<string>();
+
+  useEffect(() => {
+    void fetchClientMeProfile().then((me) => setClientOrgID(me?.org?.id));
+  }, []);
 
   useEffect(() => {
     if (!ticketID) return;
@@ -46,6 +61,10 @@ export default function TicketDetailPage() {
             <span>{TICKET_TYPE_LABELS[ticket.type] || ticket.type}</span>
             <span>{TICKET_PRIORITY_LABELS[ticket.priority] || ticket.priority}</span>
             <span>{TICKET_STATUS_LABELS[ticket.status] || ticket.status}</span>
+            <span>Мяч: {ballOwnerLabel(ticket, clientOrgID)}</span>
+            {ticket.assigned_target_org_name ? (
+              <span>Адресат: {ticket.assigned_target_org_name}</span>
+            ) : null}
             {ticket.sla_reaction_deadline ? (
               <span className="flex items-center gap-2">
                 SLA: <SlaTimer deadline={ticket.sla_reaction_deadline} />
@@ -55,7 +74,14 @@ export default function TicketDetailPage() {
         </div>
       ) : null}
 
-      {ticketID ? <TicketThread ticketID={ticketID} mode="client" context="support" /> : null}
+      {ticketID ? (
+        <TicketThread
+          ticketID={ticketID}
+          mode="client"
+          context="support"
+          onTicketUpdate={(t) => setTicket((prev) => (prev ? { ...prev, ...t } : prev))}
+        />
+      ) : null}
     </DashboardShell>
   );
 }
