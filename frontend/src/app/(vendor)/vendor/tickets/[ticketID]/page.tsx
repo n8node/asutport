@@ -25,17 +25,17 @@ export default function VendorTicketDetailPage() {
   }, [ticketID]);
 
   return (
-    <VendorShell title="Эскалация" subtitle={ticket?.subject || "Загрузка…"}>
+    <VendorShell activePath="/app/vendor/tickets" pageTitle="Эскалация">
       <p className="mb-4">
-        <Link href="/app/vendor/tickets" className="text-sm text-[#3FC8B7] hover:underline">
+        <Link href="/app/vendor/tickets" className="text-sm text-[#185fa5] hover:underline">
           ← К очереди
         </Link>
       </p>
 
       {ticket ? (
-        <div className="mb-6 rounded-lg border border-[#2A3138] bg-[#1B2025] p-4">
-          <h1 className="text-xl font-semibold text-[#E6EAEE]">{ticket.subject}</h1>
-          <div className="mt-2 flex flex-wrap gap-3 text-[12px] text-[#93A0AC]">
+        <div className="mb-6 rounded-lg border border-[#dedbd3] bg-white p-4">
+          <h1 className="text-xl font-medium text-[#18212f]">{ticket.subject}</h1>
+          <div className="mt-2 flex flex-wrap gap-3 text-[12px] text-[#6f6a62]">
             <span>{ticket.client_org_name || "Клиент"}</span>
             <span>{VENDOR_TICKET_TYPE_LABELS[ticket.type] || ticket.type}</span>
             <span>{VENDOR_PRIORITY_LABELS[ticket.priority] || ticket.priority}</span>

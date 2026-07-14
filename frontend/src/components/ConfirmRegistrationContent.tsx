@@ -39,8 +39,9 @@ export function ConfirmRegistrationContent() {
         setStatus("success");
         setMessage(
           body.data?.review_status === "pending_review"
-            ? body.data.message || "Email подтверждён. Войдите и откройте раздел «Статус компании»."
-            : body.data?.message || "Email подтверждён.",
+            ? body.data.message ||
+                "Email подтверждён. Войдите — откроется кабинет вашей организации и раздел «Статус компании»."
+            : body.data?.message || "Email подтверждён. Теперь можно войти в кабинет.",
         );
       })
       .catch(() => {

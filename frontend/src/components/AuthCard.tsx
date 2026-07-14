@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
+import { homeRouteFromLogin } from "@/lib/cabinet-routing";
 
 type AuthMode = "login" | "register";
 
@@ -84,16 +85,6 @@ const passwordRules = [
     optional: true,
   },
 ];
-
-function routeForAccount(role?: string, orgType?: string) {
-  if (role === "superadmin") {
-    return "/app/admin";
-  }
-  if (orgType === "manufacturer" || orgType === "vendor" || orgType === "integrator") {
-    return "/app/vendor";
-  }
-  return "/app/dashboard";
-}
 
 function passwordScore(password: string) {
   return passwordRules.filter((rule) => rule.test(password)).length;
@@ -210,11 +201,9 @@ export function AuthCard({ mode }: AuthCardProps) {
       if (body.data.refresh_token) {
         sessionStorage.setItem("asutport_refresh_token", body.data.refresh_token);
       }
-      if (body.data.review_status === "pending_review") {
-        router.push("/app/dashboard/onboarding");
-        return;
-      }
-      router.push(routeForAccount(body.data.role, body.data.org_type));
+      router.push(
+        homeRouteFromLogin(body.data.role, body.data.org_type, body.data.review_status),
+      );
     } catch {
       setError("Сервис авторизации временно недоступен");
     } finally {

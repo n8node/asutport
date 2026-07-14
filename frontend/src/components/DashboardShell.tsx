@@ -147,7 +147,7 @@ export function DashboardShell({
           <div className="min-w-0">
             <span className="block truncate text-sm font-medium text-[#18212f]">ASUTPORT</span>
             <span className="mt-1 inline-flex rounded border border-[#d7d2ca] bg-[#ebe9e4] px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-[#5f6b7a]">
-              Эксплуатация
+              {orgLabel}
             </span>
           </div>
         </div>
