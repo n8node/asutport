@@ -44,6 +44,7 @@ function buildNavSections(pendingReview: boolean, openTickets: number): NavSecti
       items: [
         { label: "Тикеты", href: `${base}/tickets`, icon: TicketIcon, badge: ticketBadge, requiresActive: true },
         { label: "SLA-таймеры", href: `${base}/sla`, icon: ClockIcon, requiresActive: true },
+        { label: "Покрытие", href: `${base}/coverage`, icon: ShieldIcon, requiresActive: true },
         { label: "База знаний", href: "/app/kb", icon: BookIcon },
       ],
     },
@@ -85,6 +86,10 @@ function orgTypeLabel(type?: string, isPersonal?: boolean) {
       return "Эксплуатация";
     case "manufacturer":
       return "Производитель";
+    case "vendor":
+      return "Поставщик";
+    case "integrator":
+      return "Интегратор";
     default:
       return "Организация";
   }

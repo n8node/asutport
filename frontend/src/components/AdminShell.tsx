@@ -39,8 +39,8 @@ const navSections: AdminNavSection[] = [
   {
     title: "Обзор",
     items: [
-      { label: "Dashboard", href: "/app/admin", icon: DashboardIcon },
-      { label: "Alerts", href: "#alerts", icon: BellIcon, badge: "—", tone: "red" },
+      { label: "Сводка", href: "/app/admin", icon: DashboardIcon },
+      { label: "Алерты", href: "/app/admin#alerts", icon: BellIcon, badge: "—", tone: "red" },
     ],
   },
   {
@@ -57,29 +57,29 @@ const navSections: AdminNavSection[] = [
   {
     title: "Биллинг",
     items: [
-      { label: "Revenue & MRR", href: "#revenue", icon: ChartIcon },
-      { label: "Тарифы", href: "#plans", icon: CardIcon },
-      { label: "Инвойсы", href: "#invoices", icon: FileIcon },
+      { label: "Выручка и MRR", href: "/app/admin/billing", icon: ChartIcon },
+      { label: "Тарифы", href: "/app/admin/billing#plans", icon: CardIcon },
+      { label: "Инвойсы", href: "/app/admin/billing#invoices", icon: FileIcon },
     ],
   },
   {
     title: "Платформа",
     items: [
       { label: "Тикеты onboarding", href: "/app/admin/tickets", icon: TicketIcon, badge: "!" },
-      { label: "Документы", href: "#docs", icon: FileIcon },
-      { label: "Workers", href: "#workers", icon: CpuIcon, badge: "—", tone: "yellow" },
-      { label: "LLM costs", href: "#llm", icon: SparkIcon },
-      { label: "Object storage (S3)", href: "#s3", icon: CloudIcon },
-      { label: "Email / SMTP", href: "#smtp", icon: MailIcon },
+      { label: "Документы", href: "/app/admin#docs", icon: FileIcon },
+      { label: "Workers", href: "/app/admin#workers", icon: CpuIcon, badge: "—", tone: "yellow" },
+      { label: "Расходы ИИ", href: "/app/admin#llm", icon: SparkIcon },
+      { label: "Object storage (S3)", href: "/app/admin#s3", icon: CloudIcon },
+      { label: "Email / SMTP", href: "/app/admin#smtp", icon: MailIcon },
     ],
   },
   {
-    title: "Config",
+    title: "Конфигурация",
     items: [
-      { label: "Feature flags", href: "#flags", icon: FlagIcon },
-      { label: "Audit log", href: "#audit", icon: AuditIcon },
-      { label: "System health", href: "#health", icon: HealthIcon },
-      { label: "Analytics", href: "#analytics", icon: ChartIcon },
+      { label: "Feature flags", href: "/app/admin#flags", icon: FlagIcon },
+      { label: "Audit log", href: "/app/admin#audit", icon: AuditIcon },
+      { label: "System health", href: "/app/admin#health", icon: HealthIcon },
+      { label: "Аналитика", href: "/app/admin#analytics", icon: ChartIcon },
     ],
   },
 ];

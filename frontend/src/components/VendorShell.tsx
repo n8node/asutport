@@ -30,8 +30,40 @@ type NavSection = {
 const base = "/app/vendor";
 const onboardingPath = `${base}/onboarding`;
 
-function buildNavSections(pendingReview: boolean, openEscalations: number): NavSection[] {
+function buildNavSections(
+  orgType: string,
+  pendingReview: boolean,
+  openEscalations: number,
+): NavSection[] {
   const queueBadge = pendingReview ? undefined : openEscalations > 0 ? String(openEscalations) : undefined;
+  const isManufacturer = orgType === "manufacturer";
+
+  const supportItems: NavItem[] = [
+    {
+      label: "Очередь эскалаций",
+      href: `${base}/tickets`,
+      icon: TicketIcon,
+      badge: queueBadge,
+      requiresActive: true,
+    },
+  ];
+
+  if (isManufacturer) {
+    supportItems.push(
+      { label: "Документация", href: `${base}/docs`, icon: FileIcon, requiresActive: true },
+      { label: "Зона поддержки", href: `${base}/support-zone`, icon: ShieldIcon, requiresActive: true },
+      { label: "Черновики KB", href: `${base}/kb-drafts`, icon: BookIcon, requiresActive: true },
+    );
+  }
+
+  const orgItems: NavItem[] = [
+    ...(pendingReview
+      ? [{ label: "Статус компании", href: onboardingPath, icon: StatusIcon, badge: "!" }]
+      : []),
+    { label: "Сотрудники", href: `${base}/members`, icon: UsersIcon, requiresActive: true },
+    { label: "Биллинг", href: `${base}/billing`, icon: CardIcon, requiresActive: true },
+  ];
+
   return [
     {
       title: "Обзор",
@@ -39,23 +71,15 @@ function buildNavSections(pendingReview: boolean, openEscalations: number): NavS
     },
     {
       title: "Поддержка",
-      items: [
-        {
-          label: "Очередь эскалаций",
-          href: `${base}/tickets`,
-          icon: TicketIcon,
-          badge: queueBadge,
-          requiresActive: true,
-        },
-      ],
+      items: supportItems,
     },
     {
       title: "Организация",
-      items: [
-        ...(pendingReview
-          ? [{ label: "Статус компании", href: onboardingPath, icon: StatusIcon, badge: "!" }]
-          : []),
-      ],
+      items: orgItems,
+    },
+    {
+      title: "Справка",
+      items: [{ label: "База знаний", href: "/app/kb", icon: BookIcon }],
     },
   ];
 }
@@ -75,6 +99,7 @@ export function VendorShell({
   pageTitle = "Сводка",
   reviewBanner = false,
 }: VendorShellProps) {
+  const [orgType, setOrgType] = useState("");
   const [email, setEmail] = useState("user@asutport.ru");
   const [orgName, setOrgName] = useState("Организация");
   const [orgBadge, setOrgBadge] = useState("Партнёр");
@@ -83,8 +108,8 @@ export function VendorShell({
   const avatar = useMemo(() => initials(email), [email]);
   const pendingReview = reviewStatus === "pending_review" || reviewBanner;
   const navSections = useMemo(
-    () => buildNavSections(pendingReview, openEscalations),
-    [pendingReview, openEscalations],
+    () => buildNavSections(orgType, pendingReview, openEscalations),
+    [orgType, pendingReview, openEscalations],
   );
 
   useEffect(() => {
@@ -98,6 +123,7 @@ export function VendorShell({
         if (me.org) {
           setOrgName(orgDisplayName(me.org));
           setOrgBadge(vendorOrgLabel(me.org.type));
+          setOrgType(me.org.type || "");
           if (me.org.review_status) setReviewStatus(me.org.review_status);
         }
       })
@@ -277,3 +303,8 @@ function LogoIcon() {
 function DashboardIcon() { return <IconBase><path d="M4 5h7v6H4z" /><path d="M13 5h7v14h-7z" /><path d="M4 13h7v6H4z" /></IconBase>; }
 function TicketIcon() { return <IconBase><path d="M4 7a2 2 0 0 1 2-2h12v4a2 2 0 0 0 0 4v4H6a2 2 0 0 1-2-2v-4a2 2 0 0 0 0-4Z" /></IconBase>; }
 function StatusIcon() { return <IconBase><path d="M4 21h16" /><path d="M6 21V7l6-4 6 4v14" /><path d="M10 11h4" /><path d="M10 15h4" /></IconBase>; }
+function FileIcon() { return <IconBase><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6" /></IconBase>; }
+function ShieldIcon() { return <IconBase><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" /></IconBase>; }
+function BookIcon() { return <IconBase><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z" /></IconBase>; }
+function UsersIcon() { return <IconBase><path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2" /><circle cx="9.5" cy="7" r="4" /></IconBase>; }
+function CardIcon() { return <IconBase><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /></IconBase>; }

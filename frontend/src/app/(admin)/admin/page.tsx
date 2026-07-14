@@ -10,9 +10,9 @@ export default function AdminPage() {
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <KpiCard
             tone="blue"
-            label="MRR (RUB)"
+            label="MRR (₽)"
             value="0 ₽"
-            sub="Ручные инвойсы появятся в фазе биллинга"
+            sub="Ручные инвойсы — раздел «Биллинг»"
             barWidth={8}
           />
           <KpiCard
@@ -31,9 +31,9 @@ export default function AdminPage() {
           />
           <KpiCard
             tone="purple"
-            label="SLA breach"
+            label="Просрочки SLA"
             value="—"
-            sub="Тикеты появятся в фазе 6"
+            sub="Watchdog — после production SLA"
             barWidth={5}
           />
         </div>
@@ -44,16 +44,19 @@ export default function AdminPage() {
           </div>
 
           <div className="space-y-3">
-            <Panel title="Operations">
+            <Panel title="Операции">
               <div className="flex flex-col gap-2 text-[13px]">
                 <a href="/app/db/" className="text-[#185fa5] underline">
                   Открыть Adminer
                 </a>
-                <a href="#audit" className="text-[#185fa5] underline">
-                  Admin audit log (скоро)
+                <a href="/app/admin/billing" className="text-[#185fa5] underline">
+                  Биллинг и тарифы
                 </a>
-                <a href="#health" className="text-[#185fa5] underline">
-                  System health
+                <a href="/app/admin#audit" className="text-[#185fa5] underline">
+                  Audit log (скоро)
+                </a>
+                <a href="/app/admin#health" className="text-[#185fa5] underline">
+                  Состояние системы
                 </a>
               </div>
             </Panel>
@@ -69,17 +72,17 @@ export default function AdminPage() {
         </div>
 
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <Panel title="Usage by contour (30d)">
+          <Panel title="Usage по контурам (30 дн.)">
             <p className="text-[13px] text-[#6f6a62]">Нет данных за последние 30 дней.</p>
           </Panel>
-          <Panel title="LLM">
+          <Panel title="ИИ и токены">
             <p className="text-[13px] text-[#6f6a62]">
-              Контроль расходов ИИ будет подключён после пайплайна документации.
+              Контроль расходов языковых моделей подключится после пайплайна документации.
             </p>
           </Panel>
         </div>
 
-        <div className="mt-6">
+        <div id="s3" className="mt-6">
           <AdminSettingsPanels />
         </div>
       </div>
