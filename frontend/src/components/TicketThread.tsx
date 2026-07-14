@@ -226,7 +226,11 @@ export function TicketThread({ ticketID, mode, context = "support", onTicketUpda
           <span>
             {isOnboarding ? "Заявка" : "Статус"}: {isOnboarding ? onboardingStatusLabel(ticket) : statusLabel(ticket?.status)}
           </span>
-          {ticket?.client_org_inn ? <span>ИНН: {ticket.client_org_inn}</span> : null}
+          {mode === "client" && ticket?.client_org_name ? (
+            <span>{ticket.client_org_name}</span>
+          ) : ticket?.client_org_inn ? (
+            <span>ИНН: {ticket.client_org_inn}</span>
+          ) : null}
           {!isOnboarding && ticket?.client_review_status ? (
             <span>Проверка org: {ticket.client_review_status}</span>
           ) : null}

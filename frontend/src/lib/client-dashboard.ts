@@ -1,5 +1,48 @@
 import { authFetch } from "@/lib/auth-session";
 
+export type ClientOrgProfile = {
+  name: string;
+  legal_name?: string;
+  inn?: string;
+  type?: string;
+  review_status?: string;
+  is_personal?: boolean;
+};
+
+type ClientMeResponse = {
+  user?: { email?: string; full_name?: string };
+  org?: ClientOrgProfile;
+};
+
+const ORG_FALLBACK_LABEL = "Кабинет эксплуатации";
+
+export function orgDisplayName(org?: Partial<ClientOrgProfile> | null): string {
+  const name = org?.name?.trim();
+  const legalName = org?.legal_name?.trim();
+  const inn = org?.inn?.trim();
+  if (name && name !== inn) return name;
+  if (legalName && legalName !== inn) return legalName;
+  if (name) return name;
+  if (legalName) return legalName;
+  return ORG_FALLBACK_LABEL;
+}
+
+async function fetchClientMe(): Promise<ClientMeResponse | null> {
+  const response = await authFetch("/api/v1/auth/me");
+  const body = (await response.json()) as { data?: ClientMeResponse };
+  if (!response.ok || !body.data) return null;
+  return body.data;
+}
+
+export async function fetchClientOrgProfile(): Promise<ClientOrgProfile | null> {
+  const me = await fetchClientMe();
+  return me?.org ?? null;
+}
+
+export async function fetchClientMeProfile(): Promise<ClientMeResponse | null> {
+  return fetchClientMe();
+}
+
 export type DashboardSummary = {
   installations_count: number;
   open_tickets_count: number;

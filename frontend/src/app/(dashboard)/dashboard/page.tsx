@@ -4,14 +4,24 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DashboardShell } from "@/components/DashboardShell";
 import { DashboardPanel } from "@/components/dashboard/Ui";
-import { fetchClientTickets, fetchDashboardSummary, type DashboardSummary } from "@/lib/client-dashboard";
+import {
+  fetchClientOrgProfile,
+  fetchClientTickets,
+  fetchDashboardSummary,
+  orgDisplayName,
+  type DashboardSummary,
+} from "@/lib/client-dashboard";
 import { SlaTimer } from "@/components/dashboard/SlaTimer";
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [companyName, setCompanyName] = useState(orgDisplayName());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    void fetchClientOrgProfile().then((org) => {
+      if (org) setCompanyName(orgDisplayName(org));
+    });
     void fetchDashboardSummary()
       .then(setSummary)
       .finally(() => setLoading(false));
@@ -34,10 +44,8 @@ export default function DashboardPage() {
   return (
     <DashboardShell pageTitle="Сводка">
       <div className="mb-6">
-        <h1 className="text-2xl font-medium tracking-tight text-[#18212f] sm:text-[26px]">Кабинет эксплуатации</h1>
-        <p className="mt-1 text-sm text-[#8a857d]">
-          Единое окно поддержки: профиль установки, тикеты, агент и SLA.
-        </p>
+        <h1 className="text-2xl font-medium tracking-tight text-[#18212f] sm:text-[26px]">{companyName}</h1>
+        <p className="mt-1 text-sm text-[#8a857d]">Единое окно мультивендорной поддержки</p>
       </div>
 
       {loading ? <p className="text-sm text-[#6f6a62]">Загрузка сводки…</p> : null}

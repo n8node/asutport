@@ -3,25 +3,13 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { fetchClientMeProfile, orgDisplayName } from "@/lib/client-dashboard";
 
 type DashboardShellProps = {
   children: ReactNode;
   activePath?: string;
   pageTitle?: string;
   reviewBanner?: boolean;
-};
-
-type MeResponse = {
-  data?: {
-    user?: { email?: string; full_name?: string };
-    org?: {
-      name?: string;
-      type?: string;
-      role?: string;
-      review_status?: string;
-      is_personal?: boolean;
-    };
-  };
 };
 
 type NavItem = {
@@ -109,7 +97,7 @@ export function DashboardShell({
   reviewBanner = false,
 }: DashboardShellProps) {
   const [email, setEmail] = useState("user@asutport.ru");
-  const [orgName, setOrgName] = useState("Кабинет эксплуатации");
+  const [orgName, setOrgName] = useState(orgDisplayName());
   const [orgLabel, setOrgLabel] = useState("Эксплуатация");
   const [reviewStatus, setReviewStatus] = useState("");
   const [openTickets, setOpenTickets] = useState(0);
@@ -120,15 +108,16 @@ export function DashboardShell({
   useEffect(() => {
     const token = sessionStorage.getItem("asutport_access_token");
     if (!token) return;
-    fetch("/api/v1/auth/me", { headers: { Authorization: `Bearer ${token}` } })
-      .then((response) => (response.ok ? response.json() : null))
-      .then((body: MeResponse | null) => {
-        if (body?.data?.user?.email) setEmail(body.data.user.email);
-        if (body?.data?.org?.name) {
-          setOrgName(body.data.org.name);
-          setOrgLabel(orgTypeLabel(body.data.org.type, body.data.org.is_personal));
+
+    void fetchClientMeProfile()
+      .then((me) => {
+        if (!me) return;
+        if (me.user?.email) setEmail(me.user.email);
+        if (me.org) {
+          setOrgName(orgDisplayName(me.org));
+          setOrgLabel(orgTypeLabel(me.org.type, me.org.is_personal));
+          if (me.org.review_status) setReviewStatus(me.org.review_status);
         }
-        if (body?.data?.org?.review_status) setReviewStatus(body.data.org.review_status);
       })
       .catch(() => undefined);
 

@@ -453,6 +453,8 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 			"org": map[string]any{
 				"id":            org.ID.String(),
 				"name":          org.Name,
+				"legal_name":    org.LegalName,
+				"inn":           org.INN,
 				"type":          org.Type,
 				"slug":          org.Slug,
 				"role":          p.Role,
