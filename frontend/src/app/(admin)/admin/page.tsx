@@ -1,6 +1,7 @@
 import { AdminShell } from "@/components/AdminShell";
 import { AdminOrgRequests } from "@/components/AdminOrgRequests";
 import { AdminSettingsPanels } from "@/components/AdminSettingsPanels";
+import { AdminDocsRAGPanels } from "@/components/AdminDocsRAGPanels";
 import type { ReactNode } from "react";
 
 export default function AdminPage() {
@@ -52,11 +53,11 @@ export default function AdminPage() {
                 <a href="/app/admin/billing" className="text-[#185fa5] underline">
                   Биллинг и тарифы
                 </a>
-                <a href="/app/admin#audit" className="text-[#185fa5] underline">
-                  Audit log (скоро)
+                <a href="/app/admin#docs" className="text-[#185fa5] underline">
+                  Документация и RAG
                 </a>
-                <a href="/app/admin#health" className="text-[#185fa5] underline">
-                  Состояние системы
+                <a href="/app/admin#llm" className="text-[#185fa5] underline">
+                  Шлюз ИИ
                 </a>
               </div>
             </Panel>
@@ -71,15 +72,8 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          <Panel title="Usage по контурам (30 дн.)">
-            <p className="text-[13px] text-[#6f6a62]">Нет данных за последние 30 дней.</p>
-          </Panel>
-          <Panel title="ИИ и токены">
-            <p className="text-[13px] text-[#6f6a62]">
-              Контроль расходов языковых моделей подключится после пайплайна документации.
-            </p>
-          </Panel>
+        <div className="mt-6">
+          <AdminDocsRAGPanels />
         </div>
 
         <div id="s3" className="mt-6">

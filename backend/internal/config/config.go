@@ -31,6 +31,7 @@ type Config struct {
 	S3UsePathStyle bool   `env:"S3_USE_PATH_STYLE" envDefault:"true"`
 
 	OpenRouterAPIKey       string `env:"OPENROUTER_API_KEY" envDefault:""`
+	OpenRouterBaseURL      string `env:"OPENROUTER_BASE_URL" envDefault:"https://openrouter.ai/api/v1"`
 	OpenRouterModelQualify string `env:"OPENROUTER_MODEL_QUALIFY" envDefault:"google/gemini-2.5-flash"`
 	OpenRouterModelAnswer  string `env:"OPENROUTER_MODEL_ANSWER" envDefault:"anthropic/claude-sonnet-4"`
 	OpenRouterModelVision  string `env:"OPENROUTER_MODEL_VISION" envDefault:"google/gemini-2.5-pro"`

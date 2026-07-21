@@ -19,6 +19,7 @@ import (
 	"github.com/n8node/asutport/internal/config"
 	"github.com/n8node/asutport/internal/email"
 	"github.com/n8node/asutport/internal/handler"
+	"github.com/n8node/asutport/internal/llm"
 	"github.com/n8node/asutport/internal/middleware"
 	"github.com/n8node/asutport/internal/repository"
 	s3store "github.com/n8node/asutport/internal/s3"
@@ -92,6 +93,9 @@ func main() {
 	emailNotify := email.NewNotifier(emailLoader)
 	installations := repository.NewInstallationRepo(pool)
 	billingRepo := repository.NewBillingRepo(pool)
+	docsRepo := repository.NewDocsRepo(pool)
+	llmResolver := llm.NewResolver(adminSettings, cfg)
+	docsSvc := service.NewDocsService(docsRepo, orgs, s3Loader, llmResolver, logger)
 	authSvc := service.NewAuthService(cfg.JWTSecret, users, members, sessions)
 	billingSvc := service.NewBillingService(billingRepo, ticketRepo, orgs)
 	ticketSvc := service.NewTicketService(cfg, ticketRepo, orgs, members, users, installations, fallbackRepo, s3Loader, emailNotify, billingSvc)
@@ -106,6 +110,8 @@ func main() {
 	adminUserH := handler.NewAdminUserHandler(adminUsers)
 	keyH := handler.NewAPIKeyHandler(cfg, apiKeys, members)
 	adminSettingsH := handler.NewAdminSettingsHandler(cfg, adminSettings)
+	adminLLMH := handler.NewAdminLLMHandler(cfg, llmResolver)
+	docsH := handler.NewDocsHandler(docsSvc, docsRepo, orgs, s3Loader)
 
 	authDeps := middleware.AuthDeps{
 		Cfg:      cfg,
@@ -206,6 +212,20 @@ func main() {
 				SMTPGet:     adminSettingsH.SMTPGet,
 				SMTPPatch:   adminSettingsH.SMTPPatch,
 				SMTPTest:    adminSettingsH.SMTPTest,
+				LLMGet:      adminLLMH.Get,
+				LLMPatch:    adminLLMH.Patch,
+				LLMTest:     adminLLMH.Test,
+				LLMModels:   adminLLMH.Models,
+			},
+			Docs: server.DocsHandlers{
+				CreateProduct: docsH.CreateProduct,
+				ListProducts:  docsH.ListProducts,
+				ListSources:   docsH.ListSources,
+				GetSource:     docsH.GetSource,
+				Upload:        docsH.Upload,
+				Reprocess:     docsH.Reprocess,
+				Search:        docsH.Search,
+				OriginalURL:   docsH.OriginalURL,
 			},
 		},
 		CORSOrigins: []string{"*"},

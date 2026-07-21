@@ -22,6 +22,7 @@ type Handlers struct {
 	APIKey    APIKeyHandlers
 	Admin     AdminHandlers
 	Billing   BillingHandlers
+	Docs      DocsHandlers
 	AuthDeps  appmw.AuthDeps
 	LoginRL   *appmw.LoginRateLimiter
 }
@@ -106,6 +107,21 @@ type AdminHandlers struct {
 	SMTPGet     http.HandlerFunc
 	SMTPPatch   http.HandlerFunc
 	SMTPTest    http.HandlerFunc
+	LLMGet      http.HandlerFunc
+	LLMPatch    http.HandlerFunc
+	LLMTest     http.HandlerFunc
+	LLMModels   http.HandlerFunc
+}
+
+type DocsHandlers struct {
+	CreateProduct http.HandlerFunc
+	ListProducts  http.HandlerFunc
+	ListSources   http.HandlerFunc
+	GetSource     http.HandlerFunc
+	Upload        http.HandlerFunc
+	Reprocess     http.HandlerFunc
+	Search        http.HandlerFunc
+	OriginalURL   http.HandlerFunc
 }
 
 type BillingHandlers struct {
@@ -211,7 +227,17 @@ func New(opts Options) http.Handler {
 				r.Get("/dashboard", h.Vendor.Dashboard)
 				r.Get("/tickets", h.Vendor.ListTickets)
 				r.Get("/billing", h.Billing.VendorSummary)
+				r.Get("/products", h.Docs.ListProducts)
+				r.Post("/products", h.Docs.CreateProduct)
+				r.Get("/docs", h.Docs.ListSources)
+				r.Post("/docs/upload", h.Docs.Upload)
+				r.Get("/docs/{sourceID}", h.Docs.GetSource)
+				r.Post("/docs/{sourceID}/reprocess", h.Docs.Reprocess)
+				r.Get("/docs/{sourceID}/original-url", h.Docs.OriginalURL)
+				r.Post("/rag/search", h.Docs.Search)
 			})
+
+			r.Post("/rag/search", h.Docs.Search)
 
 			r.Group(func(r chi.Router) {
 				r.Use(appmw.RequireSuperAdmin)
@@ -241,6 +267,18 @@ func New(opts Options) http.Handler {
 				r.Get("/admin/settings/smtp", h.Admin.SMTPGet)
 				r.Patch("/admin/settings/smtp", h.Admin.SMTPPatch)
 				r.Post("/admin/settings/smtp/test", h.Admin.SMTPTest)
+				r.Get("/admin/settings/llm", h.Admin.LLMGet)
+				r.Patch("/admin/settings/llm", h.Admin.LLMPatch)
+				r.Post("/admin/settings/llm/test", h.Admin.LLMTest)
+				r.Get("/admin/settings/llm/models", h.Admin.LLMModels)
+				r.Get("/admin/products", h.Docs.ListProducts)
+				r.Post("/admin/products", h.Docs.CreateProduct)
+				r.Get("/admin/docs", h.Docs.ListSources)
+				r.Post("/admin/docs/upload", h.Docs.Upload)
+				r.Get("/admin/docs/{sourceID}", h.Docs.GetSource)
+				r.Post("/admin/docs/{sourceID}/reprocess", h.Docs.Reprocess)
+				r.Get("/admin/docs/{sourceID}/original-url", h.Docs.OriginalURL)
+				r.Post("/admin/rag/search", h.Docs.Search)
 			})
 
 			r.Route("/orgs/{orgID}/api-keys", func(r chi.Router) {
