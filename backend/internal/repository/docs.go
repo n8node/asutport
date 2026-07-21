@@ -276,6 +276,50 @@ func (r *DocsRepo) DeleteChunksForSource(ctx context.Context, sourceID uuid.UUID
 	return err
 }
 
+func (r *DocsRepo) DeletePagesForSource(ctx context.Context, sourceID uuid.UUID) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM doc_pages WHERE doc_source_id = $1`, sourceID)
+	return err
+}
+
+type DocPage struct {
+	DocSourceID uuid.UUID `json:"doc_source_id"`
+	PageNumber  int       `json:"page_number"`
+	S3PageKey   string    `json:"s3_page_key"`
+	S3ParsedKey string    `json:"s3_parsed_key"`
+	TextSource  string    `json:"text_source"`
+	CharCount   int       `json:"char_count"`
+}
+
+func (r *DocsRepo) UpsertPage(ctx context.Context, p DocPage) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO doc_pages (doc_source_id, page_number, s3_page_key, s3_parsed_key, text_source, char_count)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (doc_source_id, page_number)
+		DO UPDATE SET
+			s3_page_key = EXCLUDED.s3_page_key,
+			s3_parsed_key = EXCLUDED.s3_parsed_key,
+			text_source = EXCLUDED.text_source,
+			char_count = EXCLUDED.char_count
+	`, p.DocSourceID, p.PageNumber, p.S3PageKey, p.S3ParsedKey, p.TextSource, p.CharCount)
+	return err
+}
+
+func (r *DocsRepo) GetPage(ctx context.Context, sourceID uuid.UUID, pageNumber int) (*DocPage, error) {
+	var p DocPage
+	err := r.pool.QueryRow(ctx, `
+		SELECT doc_source_id, page_number, s3_page_key, s3_parsed_key, text_source, char_count
+		FROM doc_pages
+		WHERE doc_source_id = $1 AND page_number = $2
+	`, sourceID, pageNumber).Scan(&p.DocSourceID, &p.PageNumber, &p.S3PageKey, &p.S3ParsedKey, &p.TextSource, &p.CharCount)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get page: %w", err)
+	}
+	return &p, nil
+}
+
 func (r *DocsRepo) InsertChunk(ctx context.Context, c DocChunk, embeddingLiteral string) (uuid.UUID, error) {
 	var id uuid.UUID
 	err := r.pool.QueryRow(ctx, `

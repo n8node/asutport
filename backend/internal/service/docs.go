@@ -11,30 +11,34 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
 	"github.com/n8node/asutport/internal/llm"
 	"github.com/n8node/asutport/internal/pkg/chunker"
 	"github.com/n8node/asutport/internal/pkg/pdfextract"
+	"github.com/n8node/asutport/internal/pkg/pdfrender"
 	"github.com/n8node/asutport/internal/repository"
 	s3store "github.com/n8node/asutport/internal/s3"
 )
 
 const (
-	embedBatchSize = 32
-	maxUploadBytes = 100 << 20 // 100 MiB
+	embedBatchSize     = 32
+	maxUploadBytes     = 100 << 20 // 100 MiB
+	minLocalPageRunes  = 80
+	maxVisionPagesHint = 500 // soft guard for runaway cost
 )
 
 var slugRe = regexp.MustCompile(`[^a-z0-9-]+`)
 
 type DocsService struct {
-	docs     *repository.DocsRepo
-	orgs     *repository.OrgRepo
-	s3       *s3store.Loader
-	llm      *llm.Resolver
-	logger   *slog.Logger
-	queue    chan uuid.UUID
+	docs   *repository.DocsRepo
+	orgs   *repository.OrgRepo
+	s3     *s3store.Loader
+	llm    *llm.Resolver
+	logger *slog.Logger
+	queue  chan uuid.UUID
 }
 
 func NewDocsService(
@@ -165,6 +169,14 @@ func (s *DocsService) Upload(ctx context.Context, in UploadInput) (*repository.D
 	return src, nil
 }
 
+type pendingChunk struct {
+	page      int
+	index     int
+	text      string
+	tokens    int
+	s3PageKey string
+}
+
 func (s *DocsService) ProcessSource(ctx context.Context, sourceID uuid.UUID) error {
 	src, err := s.docs.GetDocSource(ctx, sourceID)
 	if err != nil {
@@ -175,66 +187,138 @@ func (s *DocsService) ProcessSource(ctx context.Context, sourceID uuid.UUID) err
 	}
 	_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "extracting", "")
 
-	client, err := s.s3.Client(ctx)
+	s3c, err := s.s3.Client(ctx)
 	if err != nil {
 		_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", err.Error())
 		return err
 	}
-	data, err := client.GetObjectBytes(ctx, src.S3OriginalKey)
+	data, err := s3c.GetObjectBytes(ctx, src.S3OriginalKey)
 	if err != nil {
 		_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", err.Error())
 		return err
 	}
+
+	mfrSlug, productSlug, version := parseDocKeyParts(src.S3OriginalKey, src.ProductSlug, src.Version)
 
 	pages, err := extractPages(src.Filename, src.MimeType, data)
 	if err != nil {
 		_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", err.Error())
 		return err
 	}
-	if len(pages) == 0 {
-		_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", "no extractable text")
-		return fmt.Errorf("no extractable text")
-	}
 
-	type pendingChunk struct {
-		page   int
-		index  int
-		text   string
-		tokens int
-	}
-	var pending []pendingChunk
-	for _, page := range pages {
-		if strings.TrimSpace(page.Text) == "" {
-			continue
-		}
-		parts := chunker.Split(page.Text, chunker.DefaultSize, chunker.DefaultOverlap)
-		for _, part := range parts {
-			pending = append(pending, pendingChunk{
-				page:   page.Number,
-				index:  part.Index,
-				text:   part.Text,
-				tokens: chunker.EstimateTokens(part.Text),
-			})
-		}
-	}
-	if len(pending) == 0 {
-		_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", "no text chunks (scanned PDF needs vision pipeline)")
-		return fmt.Errorf("no text chunks")
-	}
-
-	_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "embedding", "")
 	llmClient, resolved, err := s.llm.Client(ctx)
 	if err != nil {
 		_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", err.Error())
 		return err
 	}
-	embedModel := resolved.EmbedModel
-	if err := s.docs.DeleteChunksForSource(ctx, sourceID); err != nil {
-		_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", err.Error())
-		return err
+
+	isPDF := strings.HasSuffix(strings.ToLower(src.Filename), ".pdf") || strings.Contains(src.MimeType, "pdf")
+	var rendered map[int][]byte
+	if isPDF && pdfrender.Available() {
+		pngs, rerr := pdfrender.RenderAll(data, pdfrender.DefaultDPI)
+		if rerr != nil {
+			s.logger.Warn("pdf render", slog.String("source_id", sourceID.String()), slog.Any("err", rerr))
+		} else {
+			rendered = make(map[int][]byte, len(pngs))
+			for _, p := range pngs {
+				rendered[p.Number] = p.PNG
+			}
+			// Ensure page list covers rendered pages even if text extract missed blanks.
+			if len(pngs) > len(pages) {
+				seen := map[int]bool{}
+				for _, p := range pages {
+					seen[p.Number] = true
+				}
+				for _, p := range pngs {
+					if !seen[p.Number] {
+						pages = append(pages, pageText{Number: p.Number, Text: ""})
+					}
+				}
+			}
+		}
 	}
 
-	var totalTokens int64
+	_ = s.docs.DeletePagesForSource(ctx, sourceID)
+	_ = s.docs.DeleteChunksForSource(ctx, sourceID)
+
+	var pending []pendingChunk
+	var visionTokens int64
+	visionPages := 0
+
+	for _, page := range pages {
+		text := strings.TrimSpace(page.Text)
+		textSource := "local"
+		pageKey := ""
+		parsedKey := ""
+
+		if png, ok := rendered[page.Number]; ok && len(png) > 0 {
+			pageKey = s3store.DocPageKey(mfrSlug, productSlug, version, page.Number)
+			if err := s3c.PutObject(ctx, pageKey, "image/png", bytes.NewReader(png), int64(len(png))); err != nil {
+				_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", err.Error())
+				return err
+			}
+			needVision := utf8.RuneCountInString(text) < minLocalPageRunes
+			if needVision {
+				if visionPages >= maxVisionPagesHint {
+					s.logger.Warn("vision page limit", slog.String("source_id", sourceID.String()), slog.Int("page", page.Number))
+				} else {
+					md, usage, verr := llmClient.ParsePageImage(ctx, resolved.VisionModel, page.Number, png)
+					if verr != nil {
+						s.logger.Warn("vision page", slog.Int("page", page.Number), slog.Any("err", verr))
+					} else if strings.TrimSpace(md) != "" {
+						text = strings.TrimSpace(md)
+						textSource = "vision"
+						visionTokens += usage.TotalTokens
+						visionPages++
+						parsedKey = s3store.DocParsedKey(mfrSlug, productSlug, version, page.Number)
+						_ = s3c.PutObject(ctx, parsedKey, "text/markdown; charset=utf-8", strings.NewReader(text), int64(len(text)))
+						orgID := src.ManufacturerOrgID
+						_ = s.docs.LogUsage(ctx, &orgID, "vision_parse", resolved.VisionModel, usage.PromptTokens, usage.TotalTokens, &sourceID, map[string]any{
+							"page": page.Number,
+						})
+					}
+				}
+			}
+		}
+
+		_ = s.docs.UpsertPage(ctx, repository.DocPage{
+			DocSourceID: sourceID,
+			PageNumber:  page.Number,
+			S3PageKey:   pageKey,
+			S3ParsedKey: parsedKey,
+			TextSource:  textSource,
+			CharCount:   utf8.RuneCountInString(text),
+		})
+
+		if text == "" {
+			continue
+		}
+		parts := chunker.Split(text, chunker.DefaultSize, chunker.DefaultOverlap)
+		for _, part := range parts {
+			pending = append(pending, pendingChunk{
+				page:      page.Number,
+				index:     part.Index,
+				text:      part.Text,
+				tokens:    chunker.EstimateTokens(part.Text),
+				s3PageKey: pageKey,
+			})
+		}
+	}
+
+	if len(pending) == 0 {
+		msg := "no text chunks"
+		if isPDF && !pdfrender.Available() {
+			msg = "no text chunks; install poppler-utils for page render + vision fallback"
+		} else if isPDF {
+			msg = "no text chunks after local extract and vision"
+		}
+		_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", msg)
+		return fmt.Errorf("%s", msg)
+	}
+
+	_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "embedding", "")
+	embedModel := resolved.EmbedModel
+	var embedTokens int64
 	for i := 0; i < len(pending); i += embedBatchSize {
 		j := i + embedBatchSize
 		if j > len(pending) {
@@ -250,7 +334,7 @@ func (s *DocsService) ProcessSource(ctx context.Context, sourceID uuid.UUID) err
 			_ = s.docs.UpdateDocSourceStatus(ctx, sourceID, "failed", err.Error())
 			return err
 		}
-		totalTokens += int64(tokens)
+		embedTokens += int64(tokens)
 		for k, c := range batch {
 			_, err := s.docs.InsertChunk(ctx, repository.DocChunk{
 				DocSourceID:       sourceID,
@@ -260,6 +344,7 @@ func (s *DocsService) ProcessSource(ctx context.Context, sourceID uuid.UUID) err
 				PageNumber:        c.page,
 				ChunkIndex:        c.index,
 				ContentMD:         c.text,
+				S3PageKey:         c.s3PageKey,
 				TokenEstimate:     c.tokens,
 			}, vectorLiteral(vecs[k]))
 			if err != nil {
@@ -269,10 +354,12 @@ func (s *DocsService) ProcessSource(ctx context.Context, sourceID uuid.UUID) err
 		}
 	}
 
+	totalTokens := embedTokens + visionTokens
 	orgID := src.ManufacturerOrgID
-	_ = s.docs.LogUsage(ctx, &orgID, "embedding", embedModel, totalTokens, totalTokens, &sourceID, map[string]any{
-		"chunks": len(pending),
-		"pages":  len(pages),
+	_ = s.docs.LogUsage(ctx, &orgID, "embedding", embedModel, embedTokens, embedTokens, &sourceID, map[string]any{
+		"chunks":       len(pending),
+		"pages":        len(pages),
+		"vision_pages": visionPages,
 	})
 
 	if err := s.docs.MarkDocSourceReady(ctx, sourceID, len(pages), len(pending), embedModel, totalTokens); err != nil {
@@ -281,9 +368,32 @@ func (s *DocsService) ProcessSource(ctx context.Context, sourceID uuid.UUID) err
 	s.logger.Info("doc indexed",
 		slog.String("source_id", sourceID.String()),
 		slog.Int("chunks", len(pending)),
+		slog.Int("vision_pages", visionPages),
 		slog.Int64("tokens", totalTokens),
 	)
 	return nil
+}
+
+func (s *DocsService) PagePresignURL(ctx context.Context, sourceID uuid.UUID, page int, orgID uuid.UUID, superadmin bool) (string, error) {
+	src, err := s.docs.GetDocSource(ctx, sourceID)
+	if err != nil {
+		return "", err
+	}
+	if !superadmin && src.ManufacturerOrgID != orgID {
+		return "", fmt.Errorf("access denied")
+	}
+	pg, err := s.docs.GetPage(ctx, sourceID, page)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(pg.S3PageKey) == "" {
+		return "", fmt.Errorf("page image not available")
+	}
+	client, err := s.s3.Client(ctx)
+	if err != nil {
+		return "", err
+	}
+	return client.PresignGet(ctx, pg.S3PageKey, 0)
 }
 
 type SearchInput struct {
@@ -292,7 +402,7 @@ type SearchInput struct {
 	Version    string
 	TopK       int
 	Threshold  float64
-	OrgID      *uuid.UUID // for usage_log
+	OrgID      *uuid.UUID
 }
 
 func (s *DocsService) Search(ctx context.Context, in SearchInput) ([]repository.RAGHit, error) {
@@ -388,6 +498,23 @@ func extractPages(filename, mime string, data []byte) ([]pageText, error) {
 	default:
 		return nil, fmt.Errorf("unsupported file type (use PDF, MD, or TXT)")
 	}
+}
+
+func parseDocKeyParts(s3Key, productSlug, version string) (mfr, product, ver string) {
+	// docs/{mfr}/{product}/{version}/original/{file}
+	parts := strings.Split(s3Key, "/")
+	if len(parts) >= 4 && parts[0] == "docs" {
+		return parts[1], parts[2], parts[3]
+	}
+	product = productSlug
+	ver = version
+	if ver == "" {
+		ver = "unspecified"
+	}
+	if product == "" {
+		product = "product"
+	}
+	return "org", product, ver
 }
 
 func contentHashBytes(data []byte) string {

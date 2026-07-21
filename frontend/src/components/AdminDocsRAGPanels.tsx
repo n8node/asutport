@@ -47,6 +47,7 @@ type DocSource = {
 
 type RAGHit = {
   chunk_id: string;
+  doc_source_id: string;
   content_md: string;
   page_number: number;
   score: number;
@@ -54,6 +55,7 @@ type RAGHit = {
   filename?: string;
   product_name?: string;
   version: string;
+  s3_page_key?: string;
 };
 
 const inputClass =
@@ -290,6 +292,15 @@ export function AdminDocsRAGPanels() {
       setError(e instanceof Error ? e.message : "search failed");
     } finally {
       setBusy("");
+    }
+  }
+
+  async function openPage(sourceId: string, page: number) {
+    try {
+      const res = await api<{ url: string }>(`/admin/docs/${sourceId}/pages/${page}/url`);
+      if (res?.url) window.open(res.url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "page url failed");
     }
   }
 
@@ -577,6 +588,13 @@ export function AdminDocsRAGPanels() {
                   </span>
                   <span className="font-mono">score {h.score.toFixed(3)}</span>
                   <span>{h.from_keyword ? "keyword" : "vector"}</span>
+                  <button
+                    type="button"
+                    className="text-[#185fa5] underline"
+                    onClick={() => void openPage(h.doc_source_id, h.page_number)}
+                  >
+                    Открыть страницу
+                  </button>
                 </div>
                 <p className="whitespace-pre-wrap text-[#18212f]">{h.content_md.slice(0, 500)}</p>
               </li>

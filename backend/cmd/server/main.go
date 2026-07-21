@@ -226,6 +226,7 @@ func main() {
 				Reprocess:     docsH.Reprocess,
 				Search:        docsH.Search,
 				OriginalURL:   docsH.OriginalURL,
+				PageURL:       docsH.PageURL,
 			},
 		},
 		CORSOrigins: []string{"*"},

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -328,10 +329,50 @@ func (h *DocsHandler) OriginalURL(w http.ResponseWriter, r *http.Request) {
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"data": map[string]any{
+			"url":        url,
+			"expires_in": 3600,
+			"source_id":  src.ID,
+		},
+	})
+}
+
+func (h *DocsHandler) PageURL(w http.ResponseWriter, r *http.Request) {
+	p, ok := auth.PrincipalFromContext(r.Context())
+	if !ok {
+		WriteError(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing authentication")
+		return
+	}
+	id, err := uuid.Parse(chi.URLParam(r, "sourceID"))
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid source id")
+		return
+	}
+	page, err := strconv.Atoi(chi.URLParam(r, "page"))
+	if err != nil || page < 1 {
+		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid page number")
+		return
+	}
+	url, err := h.docs.PagePresignURL(r.Context(), id, page, p.OrgID, p.IsSuperAdmin())
+	if err != nil {
+		msg := err.Error()
+		switch {
+		case errors.Is(err, repository.ErrNotFound) || strings.Contains(msg, "not found"):
+			WriteError(w, http.StatusNotFound, "NOT_FOUND", "page not found")
+		case strings.Contains(msg, "access denied"):
+			WriteError(w, http.StatusForbidden, "FORBIDDEN", "access denied")
+		case strings.Contains(msg, "not available"):
+			WriteError(w, http.StatusNotFound, "NOT_FOUND", "page image not available")
+		default:
+			WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", msg)
+		}
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"data": map[string]any{
 			"url":         url,
 			"expires_in":  3600,
-			"source_id":   src.ID,
-			"page_number": nil,
+			"source_id":   id,
+			"page_number": page,
 		},
 	})
 }

@@ -122,6 +122,7 @@ type DocsHandlers struct {
 	Reprocess     http.HandlerFunc
 	Search        http.HandlerFunc
 	OriginalURL   http.HandlerFunc
+	PageURL       http.HandlerFunc
 }
 
 type BillingHandlers struct {
@@ -234,10 +235,12 @@ func New(opts Options) http.Handler {
 				r.Get("/docs/{sourceID}", h.Docs.GetSource)
 				r.Post("/docs/{sourceID}/reprocess", h.Docs.Reprocess)
 				r.Get("/docs/{sourceID}/original-url", h.Docs.OriginalURL)
+				r.Get("/docs/{sourceID}/pages/{page}/url", h.Docs.PageURL)
 				r.Post("/rag/search", h.Docs.Search)
 			})
 
 			r.Post("/rag/search", h.Docs.Search)
+			r.Get("/sources/{sourceID}/pages/{page}/url", h.Docs.PageURL)
 
 			r.Group(func(r chi.Router) {
 				r.Use(appmw.RequireSuperAdmin)
@@ -278,6 +281,7 @@ func New(opts Options) http.Handler {
 				r.Get("/admin/docs/{sourceID}", h.Docs.GetSource)
 				r.Post("/admin/docs/{sourceID}/reprocess", h.Docs.Reprocess)
 				r.Get("/admin/docs/{sourceID}/original-url", h.Docs.OriginalURL)
+				r.Get("/admin/docs/{sourceID}/pages/{page}/url", h.Docs.PageURL)
 				r.Post("/admin/rag/search", h.Docs.Search)
 			})
 

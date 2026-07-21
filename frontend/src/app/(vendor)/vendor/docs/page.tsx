@@ -22,6 +22,7 @@ type DocSource = {
 };
 type RAGHit = {
   chunk_id: string;
+  doc_source_id: string;
   content_md: string;
   page_number: number;
   score: number;
@@ -117,6 +118,15 @@ export default function VendorDocsPage() {
       setErr(e instanceof Error ? e.message : "search failed");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function openPage(sourceId: string, page: number) {
+    try {
+      const res = await api<{ url: string }>(`/vendor/docs/${sourceId}/pages/${page}/url`);
+      if (res?.url) window.open(res.url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "page url failed");
     }
   }
 
@@ -245,7 +255,14 @@ export default function VendorDocsPage() {
                 <li key={h.chunk_id} className="rounded-lg border border-[#eeeae3] bg-[#faf8f5] p-3 text-[12px]">
                   <div className="mb-1 text-[11px] text-[#6f6a62]">
                     {h.product_name} · стр. {h.page_number} · {h.score.toFixed(3)} ·{" "}
-                    {h.from_keyword ? "keyword" : "vector"}
+                    {h.from_keyword ? "keyword" : "vector"}{" "}
+                    <button
+                      type="button"
+                      className="text-[#185fa5] underline"
+                      onClick={() => void openPage(h.doc_source_id, h.page_number)}
+                    >
+                      страница
+                    </button>
                   </div>
                   <p className="whitespace-pre-wrap">{h.content_md.slice(0, 400)}</p>
                 </li>
