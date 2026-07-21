@@ -72,10 +72,9 @@ CREATE INDEX idx_doc_chunks_product_version ON doc_chunks (product_id, version);
 CREATE INDEX idx_doc_chunks_manufacturer ON doc_chunks (manufacturer_org_id);
 CREATE INDEX idx_doc_chunks_content_fts ON doc_chunks USING GIN (to_tsvector('russian', content_md));
 
--- HNSW works with high-dimensional embeddings (3072); build after first data is fine.
-CREATE INDEX idx_doc_chunks_embedding_hnsw ON doc_chunks USING hnsw (embedding vector_cosine_ops)
-    WITH (m = 16, ef_construction = 64)
-    WHERE embedding IS NOT NULL;
+-- HNSW/IVFFlat on float32 vectors are limited to 2000 dims in pgvector.
+-- vector(3072) for text-embedding-3-large: exact <=> search without ANN index (OK for MVP).
+-- Later: halfvec(3072) + hnsw (halfvec_cosine_ops) when the corpus grows.
 
 CREATE TABLE usage_log (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -96,7 +95,6 @@ CREATE INDEX idx_usage_log_operation ON usage_log (operation, created_at DESC);
 
 -- +goose Down
 DROP TABLE IF EXISTS usage_log;
-DROP INDEX IF EXISTS idx_doc_chunks_embedding_hnsw;
 DROP INDEX IF EXISTS idx_doc_chunks_content_fts;
 DROP TABLE IF EXISTS doc_chunks;
 DROP TABLE IF EXISTS doc_sources;
